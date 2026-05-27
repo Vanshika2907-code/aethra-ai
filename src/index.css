@@ -1,0 +1,208 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-display: 'Space Grotesk', Inter, sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --color-void: #050608;
+  --color-ion: #70f7ff;
+  --color-ultraviolet: #896cff;
+  --color-ambercode: #ffcb6b;
+}
+
+:root {
+  color: rgba(238, 246, 251, 0.96);
+  background: #050608;
+  font-family: Inter, Arial, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --cyan: #70f7ff;
+  --cyan-soft: rgba(112, 247, 255, 0.32);
+  --violet: #896cff;
+  --amber: #ffcb6b;
+  --white: #f0f8fd;
+  --muted: #8999a8;
+  --panel: rgba(9, 13, 18, 0.55);
+  --line: rgba(115, 205, 221, 0.16);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: #050608;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 82% 16%, rgba(45, 91, 119, 0.18), transparent 38%),
+    radial-gradient(circle at 48% 78%, rgba(86, 53, 142, 0.12), transparent 42%),
+    #050608;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+}
+
+::selection {
+  color: #071016;
+  background: rgba(112, 247, 255, 0.85);
+}
+
+.os-noise {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.22;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.2) 0.65px, transparent 0.65px);
+  background-size: 4px 4px;
+  mask-image: radial-gradient(ellipse, black 26%, transparent 84%);
+}
+
+.os-grid {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(102, 162, 185, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(102, 162, 185, 0.035) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(circle at 50% 30%, black, transparent 76%);
+}
+
+.glass {
+  border: 1px solid rgba(130, 201, 215, 0.14);
+  background: linear-gradient(135deg, rgba(18, 25, 31, 0.65), rgba(7, 10, 14, 0.38));
+  backdrop-filter: blur(18px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 24px 74px rgba(0, 0, 0, 0.35);
+}
+
+.panel-edge {
+  position: relative;
+  overflow: hidden;
+}
+
+.panel-edge::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 34%;
+  height: 1px;
+  background: linear-gradient(90deg, var(--cyan), transparent);
+  opacity: 0.7;
+}
+
+.mono-tag {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: rgba(112, 247, 255, 0.72);
+}
+
+.headline {
+  font-family: 'Space Grotesk', Inter, sans-serif;
+  letter-spacing: -0.065em;
+  line-height: 0.93;
+}
+
+.spectral-text {
+  color: transparent;
+  background: linear-gradient(108deg, #fff 12%, #a1eff7 42%, #7b94ff 69%, #fff 98%);
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+.hero-aura {
+  background-color: #000;
+  background-image:
+    linear-gradient(90deg, #050608 4%, transparent 43%),
+    linear-gradient(0deg, #050608 2%, transparent 34%),
+    url('/assets/resumevault-identity-chamber.png');
+  background-position: center, center, right center;
+  background-repeat: no-repeat;
+  background-size: auto, auto, cover;
+}
+
+.pulse-ring {
+  border: 1px solid rgba(112, 247, 255, 0.18);
+  box-shadow:
+    0 0 26px rgba(112, 247, 255, 0.05),
+    inset 0 0 28px rgba(112, 247, 255, 0.025);
+}
+
+.scanline::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(112, 247, 255, 0.45), transparent);
+  animation: scan 5.5s ease-in-out infinite;
+}
+
+@keyframes scan {
+  0%,
+  100% {
+    top: 8%;
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  86% {
+    opacity: 0.45;
+  }
+  92% {
+    top: 94%;
+    opacity: 0;
+  }
+}
+
+.orbital-dash {
+  stroke-dasharray: 4 10;
+  animation: orbitDash 18s linear infinite;
+}
+
+@keyframes orbitDash {
+  to {
+    stroke-dashoffset: -160;
+  }
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+
+@media (max-width: 768px) {
+  .hero-aura {
+    background-color: #000;
+    background-image:
+      linear-gradient(0deg, #050608 3%, transparent 52%),
+      linear-gradient(90deg, #050608 4%, rgba(5, 6, 8, 0.38)),
+      url('/assets/resumevault-identity-chamber.png');
+    background-position: center, center, 70% top;
+    background-repeat: no-repeat;
+    background-size: auto, auto, auto 60vh;
+  }
+}
