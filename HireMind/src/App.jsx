@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion, useMotionTemplate, useMotionValue, useSpring } from 'framer-motion'
-import { ArrowLeft, ArrowUpRight, ChevronDown, Plus, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, Plus, Sparkles, X } from 'lucide-react'
 
 const navigation = [
   { label: 'Archive', path: '/vault' },
+  { label: 'Opportunity', path: '/opportunity' },
   { label: 'Method', path: '#method' },
   { label: 'Stories', path: '#stories' },
-  { label: 'Contact', path: '#contact' },
 ]
 
 const contourPaths = [
@@ -63,6 +63,27 @@ const archiveChapters = [
 ]
 
 const openingSkills = ['Creative Coding', 'Interaction Design', 'React', 'Story Systems', 'Research']
+const readingStages = ['Listening for role language', 'Tracing required capabilities', 'Comparing against your archive']
+
+const sampleDescription = `Senior Product Designer - Intelligent Experiences
+
+We are looking for a thoughtful designer to shape AI-powered products from early concept through launch. You will collaborate with product and engineering, build interaction prototypes, lead user research, and translate complex systems into clear human experiences.
+
+Required: Figma, prototyping, user research, design systems, product strategy, and comfort partnering with React teams. Experience with accessibility and conversational AI is valued. 4+ years of product design experience preferred.`
+
+const skillSignals = [
+  { key: 'React', terms: ['react'] },
+  { key: 'Interaction Design', terms: ['interaction design', 'interaction prototype', 'prototyping'] },
+  { key: 'Research', terms: ['research', 'user research'] },
+  { key: 'Design Systems', terms: ['design system'] },
+  { key: 'Figma', terms: ['figma'] },
+  { key: 'Product Strategy', terms: ['product strategy'] },
+  { key: 'Accessibility', terms: ['accessibility'] },
+  { key: 'Conversational AI', terms: ['conversational ai', 'ai-powered', 'artificial intelligence'] },
+  { key: 'TypeScript', terms: ['typescript'] },
+  { key: 'Python', terms: ['python'] },
+  { key: 'Data Analysis', terms: ['data analysis', 'analytics'] },
+]
 
 function readArchive(key, fallback) {
   try {
@@ -71,6 +92,45 @@ function readArchive(key, fallback) {
   } catch {
     return fallback
   }
+}
+
+function interpretOpportunity(description, identitySkills) {
+  const text = description.toLowerCase()
+  const requiredSkills = skillSignals
+    .filter((signal) => signal.terms.some((term) => text.includes(term)))
+    .map((signal) => signal.key)
+  const detectedSkills = requiredSkills.length
+    ? requiredSkills
+    : ['Communication', 'Problem Solving', 'Collaboration']
+
+  const normalizedVault = identitySkills.map((skill) => skill.toLowerCase())
+  const matched = detectedSkills.filter((skill) => normalizedVault.some((owned) => (
+    owned.includes(skill.toLowerCase()) || skill.toLowerCase().includes(owned)
+  )))
+  const missing = detectedSkills.filter((skill) => !matched.includes(skill))
+  const score = Math.max(32, Math.round((matched.length / detectedSkills.length) * 100))
+
+  const role = text.includes('designer')
+    ? (text.includes('product') ? 'Product Designer, Intelligent Experiences' : 'Experience Designer')
+    : text.includes('frontend') || text.includes('front-end')
+      ? 'Frontend Product Engineer'
+      : text.includes('data')
+        ? 'Data Experience Specialist'
+        : 'Digital Product Specialist'
+
+  const level = /lead|principal|staff|head of/i.test(description)
+    ? 'Lead / strategic ownership'
+    : /senior|4\+|5\+|6\+/i.test(description)
+      ? 'Senior / independent practice'
+      : /intern|graduate|junior|entry/i.test(description)
+        ? 'Emerging / early career'
+        : 'Mid-level / growing ownership'
+
+  const intent = text.includes('collaborat') || text.includes('partner')
+    ? 'They are searching for someone who can make complexity understandable across disciplines, with visible evidence of judgment and collaboration.'
+    : 'They value a clear maker narrative: show finished work, the thinking behind it, and how it moved an outcome forward.'
+
+  return { requiredSkills: detectedSkills, role, level, missing, score, matched, intent }
 }
 
 function App() {
@@ -100,14 +160,18 @@ function App() {
   }
 
   const isVault = path === '/vault'
+  const isOpportunity = path === '/opportunity'
+  const insideArchive = isVault || isOpportunity
 
   return (
     <div className="exhibition relative min-h-screen overflow-hidden bg-black text-white" onPointerMove={handlePointerMove}>
-      <Atmosphere pointerGlow={pointerGlow} vault={isVault} />
-      <Header isVault={isVault} navigate={navigate} />
+      <Atmosphere pointerGlow={pointerGlow} vault={insideArchive} />
+      <Header activePath={path} insideArchive={insideArchive} navigate={navigate} />
       <AnimatePresence mode="wait">
         {isVault ? (
-          <CareerVault key="vault" />
+          <CareerVault key="vault" navigate={navigate} />
+        ) : isOpportunity ? (
+          <OpportunityReader key="opportunity" navigate={navigate} />
         ) : (
           <Landing key="landing" navigate={navigate} />
         )}
@@ -116,7 +180,7 @@ function App() {
   )
 }
 
-function Header({ isVault, navigate }) {
+function Header({ activePath, insideArchive, navigate }) {
   return (
     <motion.header
       className="relative z-20 mx-auto flex w-full max-w-[1540px] items-start justify-between px-6 pb-5 pt-7 md:px-10 md:pt-10 lg:px-14"
@@ -133,7 +197,7 @@ function Header({ isVault, navigate }) {
         {navigation.map((item) => (
           item.path.startsWith('/') ? (
             <button
-              className={`minimal-link ${isVault ? 'is-current' : ''}`}
+              className={`minimal-link ${activePath === item.path ? 'is-current' : ''}`}
               key={item.label}
               onClick={() => navigate(item.path)}
               type="button"
@@ -148,9 +212,9 @@ function Header({ isVault, navigate }) {
         ))}
       </nav>
 
-      <button className="invitation-link group" onClick={() => navigate(isVault ? '/' : '/vault')} type="button">
-        {isVault ? 'Return' : 'Enter'}
-        {isVault ? (
+      <button className="invitation-link group" onClick={() => navigate(insideArchive ? '/' : '/vault')} type="button">
+        {insideArchive ? 'Return' : 'Enter'}
+        {insideArchive ? (
           <ArrowLeft className="h-4 w-4 transition-transform duration-500 group-hover:-translate-x-1" />
         ) : (
           <ArrowUpRight className="h-4 w-4 transition-transform duration-500 group-hover:-translate-y-1 group-hover:translate-x-1" />
@@ -237,7 +301,7 @@ function RevealWord({ children, gradient = false, delay = 0.17 }) {
   )
 }
 
-function CareerVault() {
+function CareerVault({ navigate }) {
   const [skills, setSkills] = useState(() => readArchive('aethra-vault-skills', openingSkills))
   const [skillDraft, setSkillDraft] = useState('')
   const [editingSkill, setEditingSkill] = useState(null)
@@ -359,9 +423,237 @@ function CareerVault() {
               onToggle={() => setOpenChapter(openChapter === chapter.id ? null : chapter.id)}
             />
           ))}
+          <motion.div
+            className="vault-continuation mt-16 flex flex-col items-start justify-between gap-7 sm:flex-row sm:items-end"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.48, duration: 0.65 }}
+          >
+            <div>
+              <div className="archive-caption">Next passage</div>
+              <p className="mt-4 max-w-[360px] text-sm leading-7 text-white/48">
+                Bring an opportunity into the archive. AETHRA will read its language against the identity you have begun to shape.
+              </p>
+            </div>
+            <RouteButton label="Read an opportunity" navigate={navigate} path="/opportunity" />
+          </motion.div>
         </section>
       </div>
     </motion.main>
+  )
+}
+
+function RouteButton({ label, navigate, path }) {
+  return (
+    <button
+      className="passage-link group"
+      onClick={() => navigate(path)}
+      type="button"
+    >
+      {label}
+      <ArrowRight className="h-4 w-4 transition-transform duration-500 group-hover:translate-x-2" />
+    </button>
+  )
+}
+
+function OpportunityReader({ navigate }) {
+  const [description, setDescription] = useState(sampleDescription)
+  const [state, setState] = useState('idle')
+  const [stage, setStage] = useState(0)
+  const [analysis, setAnalysis] = useState(null)
+  const [identitySkills] = useState(() => readArchive('aethra-vault-skills', openingSkills))
+
+  useEffect(() => {
+    if (state !== 'reading') return undefined
+
+    const timers = readingStages.map((_, index) => window.setTimeout(() => setStage(index + 1), 400 + index * 520))
+    const resultTimer = window.setTimeout(() => {
+      setAnalysis(interpretOpportunity(description, identitySkills))
+      setState('complete')
+    }, 2050)
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer))
+      window.clearTimeout(resultTimer)
+    }
+  }, [description, identitySkills, state])
+
+  function analyze(event) {
+    event.preventDefault()
+    if (!description.trim()) return
+    setAnalysis(null)
+    setStage(0)
+    setState('reading')
+  }
+
+  return (
+    <motion.main
+      className="opportunity-page relative z-10 mx-auto w-full max-w-[1540px] px-6 pb-20 pt-10 md:px-10 lg:px-14 lg:pt-16"
+      initial={{ opacity: 0, y: 22 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 16 }}
+      transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
+    >
+      <OpportunityContours />
+      <div className="relative z-10">
+        <div className="eyebrow flex items-center gap-5">
+          <span className="h-px w-14 bg-violet-200/45" />
+          From identity to opportunity
+        </div>
+        <div className="opportunity-intro mt-10 grid gap-10 lg:grid-cols-[.88fr_1.12fr] lg:gap-20">
+          <div>
+            <h1 className="opportunity-title">
+              READ THE
+              <span>ROLE</span>
+            </h1>
+            <p className="manifesto mt-10 max-w-sm">
+              Place an opportunity beside your archive. AETHRA listens for what the role asks, what it implies, and where your story already answers.
+            </p>
+            <button className="return-vault mt-10" onClick={() => navigate('/vault')} type="button">
+              <ArrowLeft className="h-4 w-4" />
+              Return to Career Vault
+            </button>
+          </div>
+
+          <form className="opportunity-input" onSubmit={analyze}>
+            <div className="archive-caption">Opportunity text / paste description</div>
+            <textarea
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Paste the language of a role here..."
+              value={description}
+            />
+            <div className="mt-7 flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+              <p className="text-xs leading-6 text-white/34">
+                Interpretation is mocked for this prototype and shaped by your archived skill vocabulary.
+              </p>
+              <button className="analyze-button group" disabled={state === 'reading'} type="submit">
+                {state === 'reading' ? 'Reading' : 'Analyze'}
+                <Sparkles className="h-4 w-4 transition-transform duration-500 group-hover:rotate-12" />
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <AnimatePresence mode="wait">
+          {state === 'reading' && (
+            <ReadingSequence key="reading" stage={stage} stages={readingStages} />
+          )}
+          {state === 'complete' && analysis && (
+            <Interpretation key="complete" analysis={analysis} />
+          )}
+        </AnimatePresence>
+      </div>
+    </motion.main>
+  )
+}
+
+function ReadingSequence({ stage, stages }) {
+  return (
+    <motion.section
+      className="reading-sequence mt-20"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, y: -10 }}
+    >
+      <div className="archive-caption">AETHRA is interpreting</div>
+      <div className="mt-8 grid gap-6 md:grid-cols-3">
+        {stages.map((message, index) => (
+          <motion.div
+            className={`reading-stage ${stage > index ? 'is-heard' : ''}`}
+            animate={{ opacity: stage > index ? 1 : 0.25 }}
+            key={message}
+          >
+            <span>{`0${index + 1}`}</span>
+            {message}
+          </motion.div>
+        ))}
+      </div>
+      <motion.div
+        className="reading-line mt-10 h-px"
+        initial={{ scaleX: 0 }}
+        animate={{ scaleX: [0, 1, 0.72] }}
+        transition={{ duration: 2, ease: 'easeInOut' }}
+      />
+    </motion.section>
+  )
+}
+
+function Interpretation({ analysis }) {
+  return (
+    <motion.section
+      className="interpretation mt-20"
+      initial={{ opacity: 0, y: 26 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+    >
+      <div className="mb-12 flex flex-col justify-between gap-8 md:flex-row md:items-end">
+        <div>
+          <div className="archive-caption">Role detected / opportunity interpreted</div>
+          <h2 className="interpretation-role mt-5">{analysis.role}</h2>
+        </div>
+        <div className="match-resonance">
+          <div className="archive-caption">ATS keyword match / resonance</div>
+          <div className="mt-3">{analysis.score}<span>%</span></div>
+        </div>
+      </div>
+
+      <div className="interpretation-grid">
+        <ResultPassage title="Experience level">
+          <p>{analysis.level}</p>
+        </ResultPassage>
+        <ResultPassage title="Required skills / extracted">
+          <TagFlow items={analysis.requiredSkills} tone="required" />
+        </ResultPassage>
+        <ResultPassage title="Already in your archive">
+          <TagFlow items={analysis.matched.length ? analysis.matched : ['No direct signal yet']} tone="present" />
+        </ResultPassage>
+        <ResultPassage title="Missing threads">
+          <TagFlow items={analysis.missing.length ? analysis.missing : ['No clear gap detected']} tone="missing" />
+        </ResultPassage>
+        <ResultPassage className="intent-reading" title="Recruiter intent summary / interpreted">
+          <p>{analysis.intent}</p>
+        </ResultPassage>
+      </div>
+    </motion.section>
+  )
+}
+
+function ResultPassage({ children, className = '', title }) {
+  return (
+    <motion.article
+      className={`result-passage ${className}`}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <div className="archive-caption">{title}</div>
+      <div className="mt-6">{children}</div>
+    </motion.article>
+  )
+}
+
+function TagFlow({ items, tone }) {
+  return (
+    <div className="flex flex-wrap gap-3">
+      {items.map((item, index) => (
+        <motion.span
+          className={`analysis-tag ${tone}`}
+          initial={{ opacity: 0, scale: 0.94 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: index * 0.06 }}
+          key={item}
+        >
+          {item}
+        </motion.span>
+      ))}
+    </div>
+  )
+}
+
+function OpportunityContours() {
+  return (
+    <div className="opportunity-contours pointer-events-none absolute right-[-10%] top-[11rem] h-[380px] w-[680px] opacity-35">
+      <ContourSvg />
+    </div>
   )
 }
 
