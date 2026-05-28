@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, ArrowUpRight, Plus, Sparkles, Upload, X } from '
 const navigation = [
   { label: 'Archive', path: '/vault' },
   { label: 'Opportunity', path: '/opportunity' },
+  { label: 'Forge', path: '/forge' },
   { label: 'Method', path: '#method' },
   { label: 'Stories', path: '#stories' },
 ]
@@ -64,9 +65,11 @@ const archiveChapters = [
 
 const openingSkills = ['Creative Coding', 'Interaction Design', 'React', 'Story Systems', 'Research']
 const readingStages = ['Reading the opportunity', 'Extracting role signals', 'Shaping the resume guidance']
+const forgeStages = ['Heating archive signals', 'Aligning ATS language', 'Forging resume structure']
 const emptyVaultMemories = Object.fromEntries(archiveChapters.map((chapter) => [chapter.id, []]))
 const vaultProfileVersionKey = 'aethra-vault-profile-version'
 const supportedEvidenceTypes = ['application/pdf', 'image/png', 'image/jpeg']
+const opportunityAnalysisKey = 'aethra-opportunity-analysis'
 
 const sampleDescription = `Senior Product Designer - Intelligent Experiences
 
@@ -348,12 +351,137 @@ function normalizeAnalysis(raw) {
   }
 }
 
+function normalizeResume(raw, profile) {
+  const personal = profile.personal || {}
+  return {
+    name: String(raw.name || personal.fullName || 'Unnamed Candidate'),
+    title: String(raw.title || personal.headline || 'Adaptive Resume'),
+    professionalSummary: String(raw.professionalSummary || raw.summary || personal.summary || 'A focused candidate profile tailored to the analyzed opportunity.'),
+    skills: toArray(raw.skills),
+    projects: toArray(raw.projects),
+    experience: toArray(raw.experience),
+    education: toArray(raw.education),
+    certifications: toArray(raw.certifications),
+    atsKeywordsUsed: toArray(raw.atsKeywordsUsed || raw.atsKeywords),
+    tailoringNotes: toArray(raw.tailoringNotes),
+  }
+}
+
 function hasUsableGeminiKey(apiKey) {
   return Boolean(
     apiKey
     && apiKey !== 'your_api_key_here'
     && !apiKey.includes('NOT_SET')
   )
+}
+
+function readOpportunityAnalysis() {
+  return readArchive(opportunityAnalysisKey, null)
+}
+
+function formatMemory(entry) {
+  return [entry.title, entry.organization, entry.detail, entry.date, entry.technologies].filter(Boolean).join(' - ')
+}
+
+function createFallbackResume(profile, opportunity) {
+  const memories = profile.memories || emptyVaultMemories
+  const projects = (memories.projects || []).map(formatMemory).filter(Boolean).slice(0, 4)
+  const experience = (memories.internships || []).map(formatMemory).filter(Boolean).slice(0, 4)
+  const education = (memories.education || []).map(formatMemory).filter(Boolean).slice(0, 3)
+  const certifications = (memories.certifications || []).map(formatMemory).filter(Boolean).slice(0, 4)
+  const analysis = opportunity?.analysis || {}
+
+  return normalizeResume({
+    name: profile.personal?.fullName,
+    title: analysis.detectedJobRole || profile.personal?.headline || 'Tailored Candidate',
+    professionalSummary: analysis.recruiterFeedback || profile.personal?.summary || 'Career profile tailored to the analyzed role using archived experience, skills, and proof-backed memories.',
+    skills: profile.skills || [],
+    projects,
+    experience,
+    education,
+    certifications,
+    atsKeywordsUsed: [
+      ...(analysis.matchingSkills || []),
+      ...(analysis.resumeFocusAreas || []),
+    ],
+    tailoringNotes: analysis.improvementSuggestions || ['Prioritized archive evidence that best matches the analyzed opportunity.'],
+  }, profile)
+}
+
+async function generateAdaptiveResume(profile, opportunity) {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY
+  const fallbackResult = createFallbackResume(profile, opportunity)
+
+  if (!hasUsableGeminiKey(apiKey)) {
+    return {
+      result: fallbackResult,
+      source: 'fallback',
+      note: 'Gemini API key is missing, so AETHRA forged a local resume draft from your archive.',
+    }
+  }
+
+  const prompt = `Generate a tailored ATS-friendly resume using this Career Archive, Job Description, and Job Description Analyzer result.
+Return only valid JSON with exactly these fields:
+{
+  "name": "",
+  "title": "",
+  "professionalSummary": "",
+  "skills": [],
+  "projects": [],
+  "experience": [],
+  "education": [],
+  "certifications": [],
+  "atsKeywordsUsed": [],
+  "tailoringNotes": []
+}
+Career Archive: ${JSON.stringify(profile)}
+Job Description: ${opportunity.jobDescription}
+Job Description Analyzer Result: ${JSON.stringify(opportunity.analysis)}`
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.2,
+        },
+      }),
+    })
+
+    if (!response.ok) {
+      return {
+        result: fallbackResult,
+        source: 'fallback',
+        note: `${await readGeminiError(response)} AETHRA forged a local resume draft instead.`,
+      }
+    }
+
+    const payload = await response.json()
+    const text = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('\n')
+
+    if (!text) {
+      return {
+        result: fallbackResult,
+        source: 'fallback',
+        note: 'Gemini returned an empty resume, so AETHRA forged a local resume draft instead.',
+      }
+    }
+
+    return {
+      result: normalizeResume(JSON.parse(extractJson(text)), profile),
+      source: 'gemini',
+      note: 'Gemini forged this resume from your archive and opportunity analysis.',
+    }
+  } catch (error) {
+    return {
+      result: fallbackResult,
+      source: 'fallback',
+      note: `Resume forging could not complete cleanly (${error.message}). AETHRA forged a local resume draft instead.`,
+    }
+  }
 }
 
 async function analyzeJobDescription(jobDescription, candidateProfile) {
@@ -461,7 +589,8 @@ function App() {
 
   const isVault = path === '/vault'
   const isOpportunity = path === '/opportunity'
-  const insideArchive = isVault || isOpportunity
+  const isForge = path === '/forge'
+  const insideArchive = isVault || isOpportunity || isForge
 
   return (
     <div className="exhibition relative min-h-screen overflow-hidden bg-black text-white" onPointerMove={handlePointerMove}>
@@ -472,6 +601,8 @@ function App() {
           <CareerVault key="vault" navigate={navigate} />
         ) : isOpportunity ? (
           <OpportunityReader key="opportunity" navigate={navigate} />
+        ) : isForge ? (
+          <ResumeForge key="forge" navigate={navigate} />
         ) : (
           <Landing key="landing" navigate={navigate} />
         )}
@@ -1021,6 +1152,216 @@ function ArchivePreview({ entries, memoryCount, navigate, personal, skills }) {
   )
 }
 
+function ResumeForge({ navigate }) {
+  const [state, setState] = useState('idle')
+  const [stage, setStage] = useState(0)
+  const [resume, setResume] = useState(null)
+  const [meta, setMeta] = useState(null)
+  const [message, setMessage] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (state !== 'forging') return undefined
+    const timers = forgeStages.map((_, index) => window.setTimeout(() => setStage(index + 1), 360 + index * 520))
+    return () => timers.forEach((timer) => window.clearTimeout(timer))
+  }, [state])
+
+  async function forgeResume() {
+    const profile = readVaultProfile()
+    const opportunity = readOpportunityAnalysis()
+
+    if (!hasVaultData(profile)) {
+      setMessage('Complete your Career Archive first.')
+      setState('blocked')
+      return
+    }
+
+    if (!opportunity?.jobDescription || !opportunity?.analysis) {
+      setMessage('Analyze an opportunity first.')
+      setState('blocked')
+      return
+    }
+
+    setResume(null)
+    setMeta(null)
+    setMessage('')
+    setCopied(false)
+    setStage(0)
+    setState('forging')
+
+    const { note, result, source } = await generateAdaptiveResume(profile, opportunity)
+    setResume(result)
+    setMeta({ note, source })
+    setState('complete')
+  }
+
+  async function copyResume() {
+    if (!resume) return
+    const text = resumeToText(resume)
+    try {
+      await window.navigator.clipboard.writeText(text)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1400)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <motion.main
+      className="forge-page relative z-10 mx-auto w-full max-w-[1540px] px-6 pb-20 pt-10 md:px-10 lg:px-14 lg:pt-16"
+      initial={{ opacity: 0, y: 22 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 16 }}
+      transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
+    >
+      <div className="forge-hero">
+        <div>
+          <div className="eyebrow flex items-center gap-5">
+            <span className="h-px w-14 bg-violet-200/45" />
+            Resume Forge / adaptive document
+          </div>
+          <h1 className="forge-title mt-10">
+            RESUME
+            <span>FORGE</span>
+          </h1>
+        </div>
+        <div className="forge-command">
+          <p>AETHRA compresses your archive, opportunity reading, and ATS language into a focused resume draft.</p>
+          <button className="forge-button group" disabled={state === 'forging'} onClick={forgeResume} type="button">
+            {state === 'forging' ? 'Forging' : 'Generate Adaptive Resume'}
+            <Sparkles className="h-4 w-4 transition-transform duration-500 group-hover:rotate-12" />
+          </button>
+        </div>
+      </div>
+
+      <AnimatePresence mode="wait">
+        {state === 'blocked' && (
+          <motion.section className="forge-blocked mt-16" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+            <div className="archive-caption">Forge paused</div>
+            <p>{message}</p>
+            <button className="return-vault mt-8" onClick={() => navigate(message.includes('Archive') ? '/vault' : '/opportunity')} type="button">
+              <ArrowLeft className="h-4 w-4" />
+              {message.includes('Archive') ? 'Open Career Archive' : 'Analyze opportunity'}
+            </button>
+          </motion.section>
+        )}
+
+        {state === 'forging' && (
+          <ForgeSequence key="forging" stage={stage} />
+        )}
+
+        {state === 'complete' && resume && (
+          <motion.section className="forge-output mt-16" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+            <div className="forge-toolbar">
+              <div>
+                <div className="archive-caption">Forged resume</div>
+                {meta?.note && <p>{meta.note}</p>}
+              </div>
+              <div>
+                <button onClick={copyResume} type="button">{copied ? 'Copied' : 'Copy Resume'}</button>
+                <button disabled type="button">Download as PDF later</button>
+                <button onClick={forgeResume} type="button">Regenerate</button>
+              </div>
+            </div>
+            <ResumeDocument resume={resume} />
+          </motion.section>
+        )}
+      </AnimatePresence>
+    </motion.main>
+  )
+}
+
+function ForgeSequence({ stage }) {
+  return (
+    <motion.section className="forge-sequence mt-16" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, y: -10 }}>
+      <div className="archive-caption">Document being forged</div>
+      <div className="mt-8 grid gap-6 md:grid-cols-3">
+        {forgeStages.map((message, index) => (
+          <motion.div className={`reading-stage ${stage > index ? 'is-heard' : ''}`} animate={{ opacity: stage > index ? 1 : 0.25 }} key={message}>
+            <span>{`0${index + 1}`}</span>
+            {message}
+          </motion.div>
+        ))}
+      </div>
+      <motion.div className="forge-heat mt-10" animate={{ scaleX: [0.1, 1, 0.68], opacity: [0.2, 1, 0.5] }} transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }} />
+    </motion.section>
+  )
+}
+
+function ResumeDocument({ resume }) {
+  return (
+    <article className="resume-document mt-10">
+      <header>
+        <h2>{resume.name}</h2>
+        <p>{resume.title}</p>
+      </header>
+      <ResumeSection title="Professional Summary">
+        <p>{resume.professionalSummary}</p>
+      </ResumeSection>
+      <ResumeSection title="Skills">
+        <div className="resume-chip-row">{resume.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>
+      </ResumeSection>
+      <ResumeList title="Projects" items={resume.projects} />
+      <ResumeList title="Experience" items={resume.experience} />
+      <ResumeList title="Education" items={resume.education} />
+      <ResumeList title="Certifications" items={resume.certifications} />
+      <ResumeSection title="ATS Keywords Used">
+        <div className="resume-chip-row muted">{resume.atsKeywordsUsed.map((keyword) => <span key={keyword}>{keyword}</span>)}</div>
+      </ResumeSection>
+      <ResumeList title="Tailoring Notes" items={resume.tailoringNotes} />
+    </article>
+  )
+}
+
+function ResumeSection({ children, title }) {
+  return (
+    <section>
+      <h3>{title}</h3>
+      {children}
+    </section>
+  )
+}
+
+function ResumeList({ items, title }) {
+  if (!items.length) return null
+  return (
+    <ResumeSection title={title}>
+      <ul>
+        {items.map((item) => <li key={item}>{item}</li>)}
+      </ul>
+    </ResumeSection>
+  )
+}
+
+function resumeToText(resume) {
+  const lines = [
+    resume.name,
+    resume.title,
+    '',
+    'PROFESSIONAL SUMMARY',
+    resume.professionalSummary,
+    '',
+    'SKILLS',
+    resume.skills.join(', '),
+    '',
+  ]
+
+  ;[
+    ['PROJECTS', resume.projects],
+    ['EXPERIENCE', resume.experience],
+    ['EDUCATION', resume.education],
+    ['CERTIFICATIONS', resume.certifications],
+    ['ATS KEYWORDS USED', resume.atsKeywordsUsed],
+    ['TAILORING NOTES', resume.tailoringNotes],
+  ].forEach(([title, items]) => {
+    if (!items.length) return
+    lines.push(title, ...items.map((item) => `- ${item}`), '')
+  })
+
+  return lines.join('\n')
+}
+
 function OpportunityReader({ navigate }) {
   const [description, setDescription] = useState('')
   const [selectedJob, setSelectedJob] = useState(null)
@@ -1066,6 +1407,12 @@ function OpportunityReader({ navigate }) {
     const { note, result, source } = await analyzeJobDescription(jobText, latestProfile)
     setAnalysis(result)
     setAnalysisMeta({ note, source })
+    window.localStorage.setItem(opportunityAnalysisKey, JSON.stringify({
+      jobDescription: jobText,
+      analysis: result,
+      meta: { note, source },
+      updatedAt: new Date().toISOString(),
+    }))
     setState('complete')
   }
 
