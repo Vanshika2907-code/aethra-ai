@@ -8,7 +8,7 @@ const navigation = [
   { label: 'Forge', path: '/forge' },
   { label: 'Simulation', path: '/simulation' },
   { label: 'Method', path: '/method' },
-  { label: 'Stories', path: '#stories' },
+  { label: 'Stories', path: '/stories' },
 ]
 
 const contourPaths = [
@@ -713,7 +713,9 @@ function App() {
   const isOpportunity = path === '/opportunity'
   const isForge = path === '/forge'
   const isSimulation = path === '/simulation'
-  const insideArchive = isVault || isOpportunity || isForge || isSimulation
+  const isMethod = path === '/method'
+  const isStories = path === '/stories'
+  const insideArchive = isVault || isOpportunity || isForge || isSimulation || isMethod || isStories
 
   return (
     <div className="exhibition relative min-h-screen overflow-hidden bg-black text-white" onPointerMove={handlePointerMove}>
@@ -728,6 +730,10 @@ function App() {
           <ResumeForge key="forge" navigate={navigate} />
         ) : isSimulation ? (
           <RecruiterSimulation key="simulation" navigate={navigate} />
+        ) : isMethod ? (
+          <Method key="method" navigate={navigate} />
+        ) : isStories ? (
+          <Stories key="stories" navigate={navigate} />
         ) : (
           <Landing key="landing" navigate={navigate} />
         )}
@@ -839,6 +845,238 @@ function Landing({ navigate }) {
         <span>01 - Opening</span>
       </motion.footer>
     </motion.div>
+  )
+}
+
+const methodSteps = [
+  {
+    title: 'Archive Ingestion',
+    detail: 'The user adds career data and proof documents, turning scattered evidence into a structured identity archive.',
+    signal: 'Profile + proof',
+  },
+  {
+    title: 'Opportunity Reading',
+    detail: 'Gemini reads any job description and extracts role expectations, missing signals, and recruiter intent.',
+    signal: 'JD intelligence',
+  },
+  {
+    title: 'Adaptive Resume Forge',
+    detail: 'AETHRA combines archive evidence with the opportunity reading to generate a focused ATS-friendly resume.',
+    signal: 'Tailored document',
+  },
+  {
+    title: 'Recruiter Simulation',
+    detail: 'The system simulates how a recruiter might interpret the candidate packet and shortlist decision.',
+    signal: 'Private review',
+  },
+  {
+    title: 'Growth Loop',
+    detail: 'Every analysis returns missing skills, stronger proof opportunities, and next steps for career growth.',
+    signal: 'Next action',
+  },
+]
+
+const stackItems = ['React', 'Vite', 'Tailwind', 'Gemini AI', 'localStorage', 'GitHub']
+
+const careerStories = [
+  {
+    persona: 'Final-year student applying for internships',
+    problem: 'She had strong class projects and hackathon work, but every internship application asked for proof she had never organized.',
+    uploads: 'Semester projects, hackathon certificates, GitHub screenshots, and a transcript.',
+    job: 'Frontend engineering internship asking for React, accessibility, and product thinking.',
+    transformation: 'AETHRA moved her strongest project evidence to the top, reframed coursework as product-facing work, and added ATS keywords without making the resume feel inflated.',
+    simulation: 'Decision: Yes / 71% hiring probability. Recruiter saw initiative, but wanted clearer measurable outcomes.',
+    advice: 'Add one metric to each project: users tested, load time improved, components built, or event placement.',
+  },
+  {
+    persona: 'Developer switching from web development to AI roles',
+    problem: 'He had web experience and self-taught AI projects, but his resume still looked like a general frontend profile.',
+    uploads: 'React portfolio, Python notebooks, AI mini-project demos, course certificates, and freelance work.',
+    job: 'AI product engineer role requiring prototypes, APIs, evaluation mindset, and human-centered AI experience.',
+    transformation: 'AETHRA connected his interface work to AI workflows, highlighted experiments, and rewrote projects around model integration and user outcomes.',
+    simulation: 'Decision: Maybe / 64% hiring probability. Recruiter liked the bridge profile but saw missing production AI depth.',
+    advice: 'Build one end-to-end AI feature with evaluation notes and add a short case study explaining tradeoffs.',
+  },
+  {
+    persona: 'Fresher with certificates but no polished resume',
+    problem: 'They had certificates, workshops, and small achievements, but no confident way to explain what those signals meant.',
+    uploads: 'AWS certificate, college workshop proof, coding contest screenshots, marksheet, and a basic resume PDF.',
+    job: 'Entry-level cloud support role asking for fundamentals, communication, troubleshooting, and learning agility.',
+    transformation: 'AETHRA grouped scattered certificates into a coherent cloud-readiness story and made the resume sound specific without pretending to have years of experience.',
+    simulation: 'Decision: Yes / 68% hiring probability. Recruiter saw credible entry-level signals and coachability.',
+    advice: 'Add one troubleshooting project or lab write-up to prove hands-on cloud practice beyond certificates.',
+  },
+]
+
+function Method({ navigate }) {
+  return (
+    <motion.main
+      className="method-page relative z-10 mx-auto w-full max-w-[1540px] px-6 pb-20 pt-10 md:px-10 lg:px-14 lg:pt-16"
+      initial={{ opacity: 0, y: 22 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 16 }}
+      transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
+    >
+      <section className="method-hero">
+        <div>
+          <div className="eyebrow flex items-center gap-5">
+            <span className="h-px w-14 bg-violet-200/45" />
+            Method / how AETHRA thinks
+          </div>
+          <h1 className="method-title mt-10">
+            CAREER
+            <span>INTELLIGENCE</span>
+          </h1>
+        </div>
+        <div className="method-opening">
+          <p>
+            AETHRA is a career intelligence loop: it remembers evidence, reads opportunities, forges documents, and predicts perception.
+          </p>
+          <button className="passage-link" onClick={() => navigate('/vault')} type="button">
+            Start with archive <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
+      </section>
+
+      <section className="method-architecture mt-16">
+        <div className="archive-caption">Simple architecture</div>
+        <div className="architecture-line mt-8">
+          {['Career Archive', 'Job Description', 'Proof Evidence'].map((item) => (
+            <motion.div
+              className="architecture-node"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.55 }}
+              key={item}
+            >
+              {item}
+            </motion.div>
+          ))}
+          <motion.div
+            className="architecture-arrow"
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            transition={{ delay: 0.32, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+          />
+          <motion.div
+            className="architecture-core"
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.48, duration: 0.65 }}
+          >
+            AI Career Intelligence
+          </motion.div>
+        </div>
+      </section>
+
+      <section className="method-flow mt-16">
+        {methodSteps.map((step, index) => (
+          <motion.article
+            className="method-step"
+            initial={{ opacity: 0, y: 22 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.32 }}
+            transition={{ delay: index * 0.06, duration: 0.62, ease: [0.16, 1, 0.3, 1] }}
+            key={step.title}
+          >
+            <span className="method-index">{String(index + 1).padStart(2, '0')}</span>
+            <div>
+              <h2>{step.title}</h2>
+              <p>{step.detail}</p>
+            </div>
+            <small>{step.signal}</small>
+          </motion.article>
+        ))}
+      </section>
+
+      <section className="hackathon-stack mt-16">
+        <div>
+          <div className="archive-caption">Built for hackathons</div>
+          <h2>Fast to demo. Easy to explain. Strong enough to feel real.</h2>
+        </div>
+        <div className="stack-list">
+          {stackItems.map((item) => <span key={item}>{item}</span>)}
+        </div>
+      </section>
+    </motion.main>
+  )
+}
+
+function Stories({ navigate }) {
+  return (
+    <motion.main
+      className="stories-page relative z-10 mx-auto w-full max-w-[1540px] px-6 pb-20 pt-10 md:px-10 lg:px-14 lg:pt-16"
+      initial={{ opacity: 0, y: 22 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 16 }}
+      transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
+    >
+      <section className="stories-hero">
+        <div>
+          <div className="eyebrow flex items-center gap-5">
+            <span className="h-px w-14 bg-violet-200/45" />
+            Stories / why it matters
+          </div>
+          <h1 className="stories-title mt-10">
+            REAL
+            <span>JOURNEYS</span>
+          </h1>
+        </div>
+        <div className="stories-opening">
+          <p>
+            AETHRA is built for the messy middle of a career: unfinished proof, scattered achievements, and roles that need a sharper story.
+          </p>
+          <button className="passage-link" onClick={() => navigate('/method')} type="button">
+            See the method <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
+      </section>
+
+      <section className="story-grid mt-16">
+        {careerStories.map((story, index) => (
+          <motion.article
+            className="story-card"
+            initial={{ opacity: 0, y: 24 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.22 }}
+            transition={{ delay: index * 0.08, duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
+            key={story.persona}
+          >
+            <div className="story-number">{String(index + 1).padStart(2, '0')}</div>
+            <h2>{story.persona}</h2>
+            <StoryBeat label="Problem" text={story.problem} />
+            <StoryBeat label="Archive upload" text={story.uploads} />
+            <StoryBeat label="Job analyzed" text={story.job} />
+            <StoryBeat label="Resume transformation" text={story.transformation} />
+            <StoryBeat label="Recruiter simulation" text={story.simulation} />
+            <StoryBeat label="Final improvement advice" text={story.advice} />
+          </motion.article>
+        ))}
+      </section>
+
+      <motion.section
+        className="stories-closing mt-16"
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.35 }}
+        transition={{ duration: 0.7 }}
+      >
+        <div className="archive-caption">Closing belief</div>
+        <h2>Every career leaves evidence. AETHRA turns it into opportunity.</h2>
+        <button className="passage-link mt-8" onClick={() => navigate('/vault')} type="button">
+          Build your archive <ArrowRight className="h-4 w-4" />
+        </button>
+      </motion.section>
+    </motion.main>
+  )
+}
+
+function StoryBeat({ label, text }) {
+  return (
+    <div className="story-beat">
+      <span>{label}</span>
+      <p>{text}</p>
+    </div>
   )
 }
 
