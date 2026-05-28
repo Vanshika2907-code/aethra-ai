@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion, useMotionTemplate, useMotionValue, useSpring } from 'framer-motion'
-import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, Plus, Sparkles, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, Plus, Sparkles, Upload, X } from 'lucide-react'
 
 const navigation = [
   { label: 'Archive', path: '/vault' },
@@ -63,13 +63,42 @@ const archiveChapters = [
 ]
 
 const openingSkills = ['Creative Coding', 'Interaction Design', 'React', 'Story Systems', 'Research']
-const readingStages = ['Listening for role language', 'Tracing required capabilities', 'Comparing against your archive']
+const readingStages = ['Reading the opportunity', 'Extracting role signals', 'Shaping the resume guidance']
+const emptyVaultMemories = Object.fromEntries(archiveChapters.map((chapter) => [chapter.id, []]))
+const vaultProfileVersionKey = 'aethra-vault-profile-version'
+const supportedEvidenceTypes = ['application/pdf', 'image/png', 'image/jpeg']
 
 const sampleDescription = `Senior Product Designer - Intelligent Experiences
 
 We are looking for a thoughtful designer to shape AI-powered products from early concept through launch. You will collaborate with product and engineering, build interaction prototypes, lead user research, and translate complex systems into clear human experiences.
 
 Required: Figma, prototyping, user research, design systems, product strategy, and comfort partnering with React teams. Experience with accessibility and conversational AI is valued. 4+ years of product design experience preferred.`
+
+const jobCards = [
+  {
+    title: 'AI Product Designer',
+    meta: 'Design Lab / Senior',
+    description: sampleDescription,
+  },
+  {
+    title: 'Frontend Experience Engineer',
+    meta: 'Creative Tools / Mid-level',
+    description: `Frontend Experience Engineer
+
+We need a frontend engineer who can craft polished, interactive product surfaces. You will build React interfaces, collaborate closely with designers, improve accessibility, and turn ambiguous product ideas into elegant prototypes.
+
+Required: React, TypeScript, CSS, design systems, accessibility, animation, and strong product judgment. Preferred: Framer Motion, performance tuning, and experience working on AI-assisted creative tools. 3+ years preferred.`,
+  },
+  {
+    title: 'AI Research Intern',
+    meta: 'Human AI Studio / Internship',
+    description: `AI Research Intern
+
+Join a small research team exploring how people use intelligent interfaces. You will synthesize user interviews, evaluate prototypes, document insights, and support experiments around conversational AI and creative workflows.
+
+Required: research methods, writing, data analysis, prototyping, collaboration, and curiosity about AI systems. Preferred: Python, survey design, and prior internship or project experience.`,
+  },
+]
 
 const skillSignals = [
   { key: 'React', terms: ['react'] },
@@ -94,8 +123,77 @@ function readArchive(key, fallback) {
   }
 }
 
-function interpretOpportunity(description, identitySkills) {
+function normalizeMemories(memories) {
+  return Object.fromEntries(
+    archiveChapters.map((chapter) => [
+      chapter.id,
+      Array.isArray(memories?.[chapter.id]) ? memories[chapter.id] : [],
+    ]),
+  )
+}
+
+function isSameStringSet(left, right) {
+  return left.length === right.length && left.every((item) => right.includes(item))
+}
+
+function isSameMemory(left, right) {
+  return left?.title === right.title && left?.detail === right.detail && left?.date === right.date
+}
+
+function isLegacySeededProfile(skills, memories) {
+  const hasVersion = Boolean(window.localStorage.getItem(vaultProfileVersionKey))
+  if (hasVersion || !isSameStringSet(skills, openingSkills)) return false
+
+  return archiveChapters.every((chapter) => {
+    const section = memories[chapter.id]
+    return section.length === 1 && isSameMemory(section[0], chapter.example)
+  })
+}
+
+function readVaultMemories() {
+  const storedMemories = readArchive('aethra-vault-memories', emptyVaultMemories)
+  const sectionMemories = Object.fromEntries(
+    archiveChapters.map((chapter) => [
+      chapter.id,
+      readArchive(`aethra-vault-${chapter.id}`, storedMemories?.[chapter.id] || []),
+    ]),
+  )
+
+  return normalizeMemories(sectionMemories)
+}
+
+function readVaultProfile() {
+  const skills = readArchive('aethra-vault-skills', [])
+  const normalizedSkills = Array.isArray(skills) ? skills : []
+  const memories = readVaultMemories()
+
+  if (isLegacySeededProfile(normalizedSkills, memories)) {
+    return {
+      skills: [],
+      memories: emptyVaultMemories,
+    }
+  }
+
+  return {
+    skills: normalizedSkills,
+    memories,
+  }
+}
+
+function hasVaultData(profile) {
+  return profile.skills.length > 0 || Object.values(profile.memories).some((items) => items.length > 0)
+}
+
+function flattenProfileText(profile) {
+  const memoryText = archiveChapters.flatMap((chapter) => (
+    profile.memories[chapter.id].map((entry) => `${chapter.title}: ${entry.title} ${entry.detail} ${entry.date}`)
+  ))
+  return profile.skills.concat(memoryText).join(' ').toLowerCase()
+}
+
+function createFallbackAnalysis(description, candidateProfile) {
   const text = description.toLowerCase()
+  const profileText = flattenProfileText(candidateProfile)
   const requiredSkills = skillSignals
     .filter((signal) => signal.terms.some((term) => text.includes(term)))
     .map((signal) => signal.key)
@@ -103,12 +201,12 @@ function interpretOpportunity(description, identitySkills) {
     ? requiredSkills
     : ['Communication', 'Problem Solving', 'Collaboration']
 
-  const normalizedVault = identitySkills.map((skill) => skill.toLowerCase())
-  const matched = detectedSkills.filter((skill) => normalizedVault.some((owned) => (
-    owned.includes(skill.toLowerCase()) || skill.toLowerCase().includes(owned)
-  )))
+  const matched = detectedSkills.filter((skill) => profileText.includes(skill.toLowerCase()))
   const missing = detectedSkills.filter((skill) => !matched.includes(skill))
   const score = Math.max(32, Math.round((matched.length / detectedSkills.length) * 100))
+  const strongestProjects = (candidateProfile.memories.projects || [])
+    .slice(0, 3)
+    .map((project) => project.title)
 
   const role = text.includes('designer')
     ? (text.includes('product') ? 'Product Designer, Intelligent Experiences' : 'Experience Designer')
@@ -130,7 +228,381 @@ function interpretOpportunity(description, identitySkills) {
     ? 'They are searching for someone who can make complexity understandable across disciplines, with visible evidence of judgment and collaboration.'
     : 'They value a clear maker narrative: show finished work, the thinking behind it, and how it moved an outcome forward.'
 
-  return { requiredSkills: detectedSkills, role, level, missing, score, matched, intent }
+  return normalizeAnalysis({
+    detectedJobRole: role,
+    experienceLevel: level,
+    requiredSkills: detectedSkills,
+    preferredSkills: detectedSkills.includes('Conversational AI') ? ['Conversational AI'] : ['Portfolio storytelling'],
+    atsKeywords: detectedSkills.concat(['collaboration', 'product judgment']).slice(0, 10),
+    missingSkills: missing,
+    matchingSkills: matched,
+    recruiterIntent: intent,
+    recruiterFeedback: matched.length
+      ? `Your archive already signals ${matched.join(', ')}. Make those threads more explicit in the resume before applying.`
+      : 'The role language is not yet visible enough in your archive. Add a project, achievement, or certification that proves the requested skills.',
+    matchScore: score,
+    hiringProbability: Math.max(18, Math.min(92, score - 4)),
+    improvementSuggestions: [
+      'Echo the strongest role keywords in your summary and project descriptions.',
+      'Add one concrete outcome beside each relevant project or internship.',
+      'Make missing skills visible through a small project, certification, or learning artifact.',
+    ],
+    strongestProjects: strongestProjects.length ? strongestProjects : ['Add projects to reveal strongest evidence'],
+    resumeFocusAreas: ['Relevant projects', 'Skill vocabulary', 'Measurable outcomes'],
+  })
+}
+
+function extractJson(text) {
+  const trimmed = text.trim()
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fenced) return fenced[1].trim()
+
+  let start = -1
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const char = trimmed[index]
+
+    if (escaped) {
+      escaped = false
+      continue
+    }
+
+    if (char === '\\') {
+      escaped = true
+      continue
+    }
+
+    if (char === '"') {
+      inString = !inString
+      continue
+    }
+
+    if (inString) continue
+
+    if (char === '{') {
+      if (depth === 0) start = index
+      depth += 1
+    }
+
+    if (char === '}') {
+      depth -= 1
+      if (depth === 0 && start !== -1) {
+        return trimmed.slice(start, index + 1)
+      }
+    }
+  }
+
+  return trimmed
+}
+
+async function readGeminiError(response) {
+  const fallback = `Gemini request failed with status ${response.status}.`
+
+  try {
+    const payload = await response.json()
+    return payload?.error?.message || fallback
+  } catch {
+    try {
+      const text = await response.text()
+      return text || fallback
+    } catch {
+      return fallback
+    }
+  }
+}
+
+function toArray(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).map(String)
+  if (typeof value === 'string' && value.trim()) {
+    return value.split(/,|\n/).map((item) => item.trim()).filter(Boolean)
+  }
+  return []
+}
+
+function asArray(value) {
+  if (Array.isArray(value)) return value.filter(Boolean)
+  if (typeof value === 'string' && value.trim()) return [value]
+  return []
+}
+
+function normalizeAnalysis(raw) {
+  return {
+    detectedJobRole: String(raw.detectedJobRole || raw.role || 'Role not clearly named'),
+    experienceLevel: String(raw.experienceLevel || raw.level || 'Experience level not explicit'),
+    requiredSkills: toArray(raw.requiredSkills),
+    preferredSkills: toArray(raw.preferredSkills),
+    atsKeywords: toArray(raw.atsKeywords),
+    matchingSkills: toArray(raw.matchingSkills),
+    missingSkills: toArray(raw.missingSkills || raw.missing),
+    recruiterIntent: String(raw.recruiterIntent || raw.intent || 'The recruiter appears to be evaluating fit through evidence, clarity, and role-specific language.'),
+    recruiterFeedback: String(raw.recruiterFeedback || raw.recruiterIntent || 'The profile should make its strongest evidence easier for the recruiter to see.'),
+    matchScore: Number.isFinite(Number(raw.matchScore || raw.score)) ? Math.max(0, Math.min(100, Math.round(Number(raw.matchScore || raw.score)))) : 62,
+    hiringProbability: Number.isFinite(Number(raw.hiringProbability)) ? Math.max(0, Math.min(100, Math.round(Number(raw.hiringProbability)))) : 50,
+    improvementSuggestions: toArray(raw.improvementSuggestions),
+    strongestProjects: toArray(raw.strongestProjects),
+    resumeFocusAreas: toArray(raw.resumeFocusAreas),
+  }
+}
+
+function hasUsableGeminiKey(apiKey) {
+  return Boolean(
+    apiKey
+    && apiKey !== 'your_api_key_here'
+    && !apiKey.includes('NOT_SET')
+  )
+}
+
+function normalizeExtractedItem(item) {
+  if (typeof item === 'string') {
+    return { title: item, detail: 'Extracted from uploaded evidence', date: '', confidence: 68 }
+  }
+
+  return {
+    title: String(item?.title || item?.name || item?.eventName || item?.degree || 'Untitled evidence'),
+    detail: String(item?.detail || item?.description || item?.organization || item?.issuer || item?.issuingOrganization || 'Extracted from uploaded evidence'),
+    date: String(item?.date || item?.issuedDate || item?.period || ''),
+    confidence: Number.isFinite(Number(item?.confidence)) ? Math.max(0, Math.min(100, Math.round(Number(item.confidence)))) : 72,
+  }
+}
+
+function normalizeExtraction(raw, fileName = '') {
+  const memories = Object.fromEntries(
+    archiveChapters.map((chapter) => [
+      chapter.id,
+      asArray(raw?.[chapter.id]).map(normalizeExtractedItem),
+    ]),
+  )
+
+  return {
+    fileName,
+    documentType: String(raw?.documentType || raw?.type || 'Career evidence'),
+    confidence: Number.isFinite(Number(raw?.confidence)) ? Math.max(0, Math.min(100, Math.round(Number(raw.confidence)))) : 74,
+    skills: asArray(raw?.skills).map((skill) => (
+      typeof skill === 'string'
+        ? { name: skill, confidence: 70 }
+        : {
+          name: String(skill?.name || skill?.title || 'Skill signal'),
+          confidence: Number.isFinite(Number(skill?.confidence)) ? Math.max(0, Math.min(100, Math.round(Number(skill.confidence)))) : 70,
+        }
+    )),
+    memories,
+    organizations: toArray(raw?.issuingOrganizations || raw?.organizations),
+    technologies: toArray(raw?.technologies),
+    note: String(raw?.summary || raw?.note || 'AETHRA found career evidence in this document. Review each memory before saving it.'),
+  }
+}
+
+function createFallbackExtraction(file) {
+  const name = file.name.toLowerCase()
+
+  if (name.includes('certificate') || name.includes('aws') || name.includes('cert')) {
+    return normalizeExtraction({
+      documentType: 'Certificate',
+      confidence: 64,
+      certifications: [{
+        title: name.includes('aws') ? 'AWS Certification' : 'Professional Certification',
+        detail: 'Issuing organization detected from uploaded certificate',
+        date: '',
+        confidence: 62,
+      }],
+      skills: ['Cloud fundamentals', 'Technical learning'],
+      issuingOrganizations: name.includes('aws') ? ['Amazon Web Services'] : [],
+      technologies: name.includes('aws') ? ['AWS'] : [],
+    }, file.name)
+  }
+
+  if (name.includes('transcript')) {
+    return normalizeExtraction({
+      documentType: 'Transcript',
+      confidence: 62,
+      education: [{ title: 'Academic transcript', detail: 'Education evidence extracted from transcript', date: '', confidence: 61 }],
+      skills: ['Academic foundation'],
+    }, file.name)
+  }
+
+  return normalizeExtraction({
+    documentType: file.type === 'application/pdf' ? 'Resume PDF' : 'Achievement image',
+    confidence: 58,
+    skills: ['Communication', 'Project ownership'],
+    projects: [{ title: 'Uploaded portfolio evidence', detail: 'A project signal was detected in the document', date: '', confidence: 56 }],
+    achievements: [{ title: 'Documented achievement', detail: 'Achievement evidence found in uploaded file', date: '', confidence: 54 }],
+  }, file.name)
+}
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result).split(',')[1])
+    reader.onerror = () => reject(new Error('AETHRA could not read this file.'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function analyzeArchiveDocument(file) {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY
+  const fallbackResult = createFallbackExtraction(file)
+
+  if (!hasUsableGeminiKey(apiKey)) {
+    return {
+      result: fallbackResult,
+      source: 'fallback',
+      note: 'Gemini API key is missing, so AETHRA created a cautious local extraction draft.',
+    }
+  }
+
+  const base64Data = await readFileAsBase64(file)
+  const prompt = `Analyze this uploaded career evidence document using vision understanding.
+Return only valid JSON with these fields:
+documentType,
+confidence,
+skills,
+certifications,
+projects,
+education,
+internships,
+achievements,
+issuingOrganizations,
+dates,
+technologies,
+summary.
+Each extracted skill or archive item should include confidence when possible.
+If a field is not visible, return an empty array.`
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  mimeType: file.type,
+                  data: base64Data,
+                },
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.15,
+        },
+      }),
+    })
+
+    if (!response.ok) {
+      return {
+        result: fallbackResult,
+        source: 'fallback',
+        note: `${await readGeminiError(response)} AETHRA created a local extraction draft instead.`,
+      }
+    }
+
+    const payload = await response.json()
+    const text = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('\n')
+    if (!text) {
+      return {
+        result: fallbackResult,
+        source: 'fallback',
+        note: 'Gemini returned no extraction text, so AETHRA created a local extraction draft instead.',
+      }
+    }
+
+    return {
+      result: normalizeExtraction(JSON.parse(extractJson(text)), file.name),
+      source: 'gemini',
+      note: 'Gemini Vision interpreted this evidence. Review the memories before saving.',
+    }
+  } catch (error) {
+    return {
+      result: fallbackResult,
+      source: 'fallback',
+      note: `Document understanding could not complete cleanly (${error.message}). AETHRA created a local extraction draft instead.`,
+    }
+  }
+}
+
+async function analyzeJobDescription(jobDescription, candidateProfile) {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY
+  const fallbackResult = createFallbackAnalysis(jobDescription, candidateProfile)
+
+  if (!hasUsableGeminiKey(apiKey)) {
+    return {
+      result: fallbackResult,
+      source: 'fallback',
+      note: 'Gemini API key is missing, so AETHRA used its local demo interpreter.',
+    }
+  }
+
+  const prompt = `Analyze this candidate profile against this job description for resume optimization.
+Compare the candidate profile with the job requirements.
+Return only valid JSON with these fields:
+matchScore,
+matchingSkills,
+missingSkills,
+recruiterFeedback,
+improvementSuggestions,
+strongestProjects,
+resumeFocusAreas,
+hiringProbability.
+Candidate profile: ${JSON.stringify(candidateProfile)}
+Job description: ${jobDescription}`
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: prompt }],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.2,
+        },
+      }),
+    })
+
+    if (!response.ok) {
+      const message = await readGeminiError(response)
+      return {
+        result: fallbackResult,
+        source: 'fallback',
+        note: `${message} AETHRA used its local demo interpreter instead.`,
+      }
+    }
+
+    const payload = await response.json()
+    const text = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('\n')
+
+    if (!text) {
+      return {
+        result: fallbackResult,
+        source: 'fallback',
+        note: 'Gemini returned an empty analysis, so AETHRA used its local demo interpreter instead.',
+      }
+    }
+
+    return {
+      result: normalizeAnalysis(JSON.parse(extractJson(text))),
+      source: 'gemini',
+      note: 'Gemini interpreted this opportunity from the pasted job description.',
+    }
+  } catch (error) {
+    return {
+      result: fallbackResult,
+      source: 'fallback',
+      note: `Gemini could not be used cleanly (${error.message}). AETHRA used its local demo interpreter instead.`,
+    }
+  }
 }
 
 function App() {
@@ -302,25 +774,32 @@ function RevealWord({ children, gradient = false, delay = 0.17 }) {
 }
 
 function CareerVault({ navigate }) {
-  const [skills, setSkills] = useState(() => readArchive('aethra-vault-skills', openingSkills))
+  const [skills, setSkills] = useState(() => readVaultProfile().skills)
   const [skillDraft, setSkillDraft] = useState('')
   const [editingSkill, setEditingSkill] = useState(null)
   const [editDraft, setEditDraft] = useState('')
   const [openChapter, setOpenChapter] = useState('projects')
-  const [entries, setEntries] = useState(() => readArchive(
-    'aethra-vault-memories',
-    Object.fromEntries(archiveChapters.map((chapter) => [chapter.id, [chapter.example]])),
-  ))
+  const [entries, setEntries] = useState(() => readVaultProfile().memories)
+  const [ingestion, setIngestion] = useState({
+    status: 'idle',
+    fileName: '',
+    extraction: null,
+    note: '',
+  })
   const [drafts, setDrafts] = useState(() => Object.fromEntries(
     archiveChapters.map((chapter) => [chapter.id, { title: '', detail: '', date: '' }]),
   ))
 
   useEffect(() => {
+    window.localStorage.setItem(vaultProfileVersionKey, '2')
     window.localStorage.setItem('aethra-vault-skills', JSON.stringify(skills))
   }, [skills])
 
   useEffect(() => {
     window.localStorage.setItem('aethra-vault-memories', JSON.stringify(entries))
+    archiveChapters.forEach((chapter) => {
+      window.localStorage.setItem(`aethra-vault-${chapter.id}`, JSON.stringify(entries[chapter.id] || []))
+    })
   }, [entries])
 
   function addSkill(event) {
@@ -329,6 +808,11 @@ function CareerVault({ navigate }) {
     if (!nextSkill || skills.includes(nextSkill)) return
     setSkills([...skills, nextSkill])
     setSkillDraft('')
+  }
+
+  function addSuggestedSkill(skill) {
+    if (skills.includes(skill)) return
+    setSkills([...skills, skill])
   }
 
   function beginSkillEdit(skill) {
@@ -358,6 +842,106 @@ function CareerVault({ navigate }) {
     if (!draft.title.trim()) return
     setEntries({ ...entries, [section]: [...entries[section], draft] })
     setDrafts({ ...drafts, [section]: { title: '', detail: '', date: '' } })
+  }
+
+  async function handleEvidenceUpload(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    if (!supportedEvidenceTypes.includes(file.type)) {
+      setIngestion({
+        status: 'error',
+        fileName: file.name,
+        extraction: null,
+        note: 'AETHRA can read PDF, PNG, JPG, and JPEG evidence files.',
+      })
+      return
+    }
+
+    setIngestion({
+      status: 'processing',
+      fileName: file.name,
+      extraction: null,
+      note: 'Reading visual evidence and listening for career signals.',
+    })
+
+    const { note, result, source } = await analyzeArchiveDocument(file)
+    setIngestion({
+      status: 'review',
+      fileName: file.name,
+      extraction: result,
+      note: `${note} Source: ${source}.`,
+    })
+  }
+
+  function updateExtractedSkill(index, value) {
+    const nextSkills = ingestion.extraction.skills.map((skill, skillIndex) => (
+      skillIndex === index ? { ...skill, name: value } : skill
+    ))
+    setIngestion({ ...ingestion, extraction: { ...ingestion.extraction, skills: nextSkills } })
+  }
+
+  function removeExtractedSkill(index) {
+    const nextSkills = ingestion.extraction.skills.filter((_, skillIndex) => skillIndex !== index)
+    setIngestion({ ...ingestion, extraction: { ...ingestion.extraction, skills: nextSkills } })
+  }
+
+  function updateExtractedMemory(section, index, field, value) {
+    const nextSection = ingestion.extraction.memories[section].map((entry, entryIndex) => (
+      entryIndex === index ? { ...entry, [field]: value } : entry
+    ))
+    setIngestion({
+      ...ingestion,
+      extraction: {
+        ...ingestion.extraction,
+        memories: { ...ingestion.extraction.memories, [section]: nextSection },
+      },
+    })
+  }
+
+  function removeExtractedMemory(section, index) {
+    const nextSection = ingestion.extraction.memories[section].filter((_, entryIndex) => entryIndex !== index)
+    setIngestion({
+      ...ingestion,
+      extraction: {
+        ...ingestion.extraction,
+        memories: { ...ingestion.extraction.memories, [section]: nextSection },
+      },
+    })
+  }
+
+  function saveExtraction() {
+    if (!ingestion.extraction) return
+    const extractedSkills = ingestion.extraction.skills
+      .map((skill) => skill.name.trim())
+      .filter(Boolean)
+    const nextSkills = Array.from(new Set([...skills, ...extractedSkills]))
+    const nextEntries = Object.fromEntries(
+      archiveChapters.map((chapter) => [
+        chapter.id,
+        [
+          ...entries[chapter.id],
+          ...ingestion.extraction.memories[chapter.id]
+            .filter((entry) => entry.title.trim())
+            .map((entry) => ({
+              title: entry.title.trim(),
+              detail: entry.detail.trim(),
+              date: entry.date.trim(),
+              confidence: entry.confidence,
+            })),
+        ],
+      ]),
+    )
+
+    setSkills(nextSkills)
+    setEntries(nextEntries)
+    setIngestion({
+      status: 'idle',
+      fileName: '',
+      extraction: null,
+      note: 'Evidence remembered inside the archive.',
+    })
   }
 
   return (
@@ -390,10 +974,22 @@ function CareerVault({ navigate }) {
             editDraft={editDraft}
             editingSkill={editingSkill}
             removeSkill={removeSkill}
+            addSuggestedSkill={addSuggestedSkill}
             setEditDraft={setEditDraft}
             setSkillDraft={setSkillDraft}
             skillDraft={skillDraft}
             skills={skills}
+            suggestedSkills={openingSkills}
+          />
+          <EvidenceIngestion
+            ingestion={ingestion}
+            onCancel={() => setIngestion({ status: 'idle', fileName: '', extraction: null, note: '' })}
+            onFile={handleEvidenceUpload}
+            onRemoveMemory={removeExtractedMemory}
+            onRemoveSkill={removeExtractedSkill}
+            onSave={saveExtraction}
+            onUpdateMemory={updateExtractedMemory}
+            onUpdateSkill={updateExtractedSkill}
           />
         </section>
 
@@ -443,6 +1039,136 @@ function CareerVault({ navigate }) {
   )
 }
 
+function EvidenceIngestion({
+  ingestion,
+  onCancel,
+  onFile,
+  onRemoveMemory,
+  onRemoveSkill,
+  onSave,
+  onUpdateMemory,
+  onUpdateSkill,
+}) {
+  const extraction = ingestion.extraction
+  const extractedMemoryCount = extraction
+    ? Object.values(extraction.memories).reduce((count, list) => count + list.length, 0)
+    : 0
+
+  return (
+    <motion.section
+      className="evidence-ingestion mt-14"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.36, duration: 0.7 }}
+    >
+      <div className="archive-caption">Evidence ingestion / Gemini Vision</div>
+      <label className={`evidence-drop mt-6 ${ingestion.status === 'processing' ? 'is-processing' : ''}`}>
+        <input accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" onChange={onFile} type="file" />
+        <span className="evidence-orb">
+          {ingestion.status === 'processing' ? <Sparkles className="h-5 w-5" /> : <Upload className="h-5 w-5" />}
+        </span>
+        <span>
+          <strong>{ingestion.status === 'processing' ? 'Reading evidence' : 'Upload proof document'}</strong>
+          <small>Resume PDFs, certificates, transcripts, internship letters, screenshots</small>
+        </span>
+      </label>
+
+      {ingestion.note && (
+        <p className={`evidence-note ${ingestion.status === 'error' ? 'is-error' : ''}`}>{ingestion.note}</p>
+      )}
+
+      <AnimatePresence>
+        {ingestion.status === 'processing' && (
+          <motion.div
+            className="evidence-processing"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+          >
+            <motion.span
+              animate={{ x: ['-15%', '115%'] }}
+              transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+            />
+            <p>{ingestion.fileName}</p>
+          </motion.div>
+        )}
+
+        {ingestion.status === 'review' && extraction && (
+          <motion.div
+            className="extraction-review"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
+            <div className="extraction-header">
+              <div>
+                <div className="archive-caption">Draft memories detected</div>
+                <h3>{extraction.documentType}</h3>
+                <p>{extraction.fileName}</p>
+              </div>
+              <ConfidenceMark value={extraction.confidence} />
+            </div>
+
+            {extraction.note && <p className="extraction-summary">{extraction.note}</p>}
+
+            {extraction.skills.length > 0 && (
+              <div className="extraction-block">
+                <div className="archive-caption">Skills</div>
+                {extraction.skills.map((skill, index) => (
+                  <div className="extracted-skill" key={`${skill.name}-${index}`}>
+                    <input onChange={(event) => onUpdateSkill(index, event.target.value)} value={skill.name} />
+                    <ConfidenceMark value={skill.confidence} />
+                    <button aria-label={`Remove ${skill.name}`} onClick={() => onRemoveSkill(index)} type="button">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {archiveChapters.map((chapter) => (
+              extraction.memories[chapter.id].length > 0 && (
+                <div className="extraction-block" key={chapter.id}>
+                  <div className="archive-caption">{chapter.title}</div>
+                  {extraction.memories[chapter.id].map((entry, index) => (
+                    <div className="extracted-memory" key={`${entry.title}-${index}`}>
+                      <div className="extracted-memory-grid">
+                        <input onChange={(event) => onUpdateMemory(chapter.id, index, 'title', event.target.value)} value={entry.title} />
+                        <input onChange={(event) => onUpdateMemory(chapter.id, index, 'date', event.target.value)} value={entry.date} />
+                      </div>
+                      <textarea onChange={(event) => onUpdateMemory(chapter.id, index, 'detail', event.target.value)} value={entry.detail} />
+                      <div className="extracted-actions">
+                        <ConfidenceMark value={entry.confidence} />
+                        <button onClick={() => onRemoveMemory(chapter.id, index)} type="button">Discard</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            ))}
+
+            <div className="extraction-footer">
+              <span>{extraction.skills.length} skills / {extractedMemoryCount} memories</span>
+              <div>
+                <button onClick={onCancel} type="button">Cancel</button>
+                <button className="remember-evidence" onClick={onSave} type="button">Remember evidence</button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.section>
+  )
+}
+
+function ConfidenceMark({ value }) {
+  return (
+    <span className="confidence-mark">
+      {value}%
+    </span>
+  )
+}
+
 function RouteButton({ label, navigate, path }) {
   return (
     <button
@@ -457,34 +1183,89 @@ function RouteButton({ label, navigate, path }) {
 }
 
 function OpportunityReader({ navigate }) {
-  const [description, setDescription] = useState(sampleDescription)
+  const [description, setDescription] = useState('')
+  const [selectedJob, setSelectedJob] = useState(null)
   const [state, setState] = useState('idle')
   const [stage, setStage] = useState(0)
   const [analysis, setAnalysis] = useState(null)
-  const [identitySkills] = useState(() => readArchive('aethra-vault-skills', openingSkills))
+  const [analysisMeta, setAnalysisMeta] = useState(null)
+  const [error, setError] = useState('')
+  const [candidateProfile, setCandidateProfile] = useState(() => readVaultProfile())
 
   useEffect(() => {
     if (state !== 'reading') return undefined
 
     const timers = readingStages.map((_, index) => window.setTimeout(() => setStage(index + 1), 400 + index * 520))
-    const resultTimer = window.setTimeout(() => {
-      setAnalysis(interpretOpportunity(description, identitySkills))
-      setState('complete')
-    }, 2050)
 
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer))
-      window.clearTimeout(resultTimer)
     }
-  }, [description, identitySkills, state])
+  }, [state])
 
-  function analyze(event) {
+  async function analyze(event) {
     event.preventDefault()
-    if (!description.trim()) return
+    const jobText = description.trim()
+    if (!jobText) return
+    const latestProfile = readVaultProfile()
+    setCandidateProfile(latestProfile)
+
+    if (!hasVaultData(latestProfile)) {
+      setAnalysis(null)
+      setAnalysisMeta(null)
+      setError('')
+      setStage(0)
+      setState('empty')
+      return
+    }
+
     setAnalysis(null)
+    setAnalysisMeta(null)
+    setError('')
     setStage(0)
     setState('reading')
+
+    const { note, result, source } = await analyzeJobDescription(jobText, latestProfile)
+    setAnalysis(result)
+    setAnalysisMeta({ note, source })
+    setState('complete')
   }
+
+  function selectJob(job) {
+    setSelectedJob(job)
+    setDescription(job.description)
+    setCandidateProfile(readVaultProfile())
+    setAnalysis(null)
+    setAnalysisMeta(null)
+    setError('')
+    setState('idle')
+    setStage(0)
+  }
+
+  function updateDescription(value) {
+    setDescription(value)
+    if (selectedJob && value !== selectedJob.description) {
+      setSelectedJob(null)
+    }
+    setAnalysis(null)
+    setAnalysisMeta(null)
+    setError('')
+    setState('idle')
+    setStage(0)
+  }
+
+  function clearOpportunity() {
+    setSelectedJob(null)
+    setDescription('')
+    setAnalysis(null)
+    setAnalysisMeta(null)
+    setError('')
+    setState('idle')
+    setStage(0)
+  }
+
+  const analysisSource = selectedJob && description === selectedJob.description
+    ? 'Sample role'
+    : 'Custom job description'
 
   return (
     <motion.main
@@ -513,18 +1294,42 @@ function OpportunityReader({ navigate }) {
               <ArrowLeft className="h-4 w-4" />
               Return to Career Vault
             </button>
+            <ProfileWhisper candidateProfile={candidateProfile} />
           </div>
 
           <form className="opportunity-input" onSubmit={analyze}>
-            <div className="archive-caption">Opportunity text / paste description</div>
+            <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+              <div>
+                <div className="archive-caption">Opportunity text / paste any description</div>
+                <div className="source-indicator mt-4">
+                  Analyzing <span>{analysisSource}</span>
+                </div>
+              </div>
+              <button className="clear-opportunity" disabled={state === 'reading' || !description.trim()} onClick={clearOpportunity} type="button">
+                Clear
+              </button>
+            </div>
+            <div className="job-card-row mt-7">
+              {jobCards.map((job) => (
+                <button
+                  className={`job-card ${selectedJob?.title === job.title && description === job.description ? 'is-selected' : ''}`}
+                  key={job.title}
+                  onClick={() => selectJob(job)}
+                  type="button"
+                >
+                  <span>{job.title}</span>
+                  <small>{job.meta}</small>
+                </button>
+              ))}
+            </div>
             <textarea
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="Paste the language of a role here..."
+              onChange={(event) => updateDescription(event.target.value)}
+              placeholder="Paste any job description here. AETHRA will read this custom text first, even if you began from a sample role..."
               value={description}
             />
             <div className="mt-7 flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
               <p className="text-xs leading-6 text-white/34">
-                Interpretation is mocked for this prototype and shaped by your archived skill vocabulary.
+                Gemini reads the role language and returns structured JSON. If no API key is present, AETHRA falls back to a local demo reading.
               </p>
               <button className="analyze-button group" disabled={state === 'reading'} type="submit">
                 {state === 'reading' ? 'Reading' : 'Analyze'}
@@ -538,12 +1343,63 @@ function OpportunityReader({ navigate }) {
           {state === 'reading' && (
             <ReadingSequence key="reading" stage={stage} stages={readingStages} />
           )}
+          {state === 'error' && (
+            <AnalysisError key="error" message={error} />
+          )}
+          {state === 'empty' && (
+            <EmptyArchiveMessage key="empty" navigate={navigate} />
+          )}
           {state === 'complete' && analysis && (
-            <Interpretation key="complete" analysis={analysis} />
+            <Interpretation analysis={analysis} key="complete" meta={analysisMeta} />
           )}
         </AnimatePresence>
       </div>
     </motion.main>
+  )
+}
+
+function ProfileWhisper({ candidateProfile }) {
+  const memoryCount = Object.values(candidateProfile.memories).reduce((count, list) => count + list.length, 0)
+  return (
+    <div className="profile-whisper mt-12">
+      <div className="archive-caption">Archive currently in memory</div>
+      <div className="mt-5 flex flex-wrap gap-5 text-sm text-white/54">
+        <span>{candidateProfile.skills.length} skills</span>
+        <span>{memoryCount} memories</span>
+      </div>
+    </div>
+  )
+}
+
+function EmptyArchiveMessage({ navigate }) {
+  return (
+    <motion.section
+      className="empty-archive-message mt-20"
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+    >
+      <div className="archive-caption">Adaptive intelligence dormant</div>
+      <p className="mt-5">Your archive is empty. Add career memories to activate adaptive intelligence.</p>
+      <button className="return-vault mt-8" onClick={() => navigate('/vault')} type="button">
+        <ArrowLeft className="h-4 w-4" />
+        Open Career Vault
+      </button>
+    </motion.section>
+  )
+}
+
+function AnalysisError({ message }) {
+  return (
+    <motion.section
+      className="analysis-error mt-20"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+    >
+      <div className="archive-caption">Interpretation interrupted</div>
+      <p className="mt-5">{message}</p>
+    </motion.section>
   )
 }
 
@@ -578,7 +1434,7 @@ function ReadingSequence({ stage, stages }) {
   )
 }
 
-function Interpretation({ analysis }) {
+function Interpretation({ analysis, meta }) {
   return (
     <motion.section
       className="interpretation mt-20"
@@ -588,30 +1444,32 @@ function Interpretation({ analysis }) {
     >
       <div className="mb-12 flex flex-col justify-between gap-8 md:flex-row md:items-end">
         <div>
-          <div className="archive-caption">Role detected / opportunity interpreted</div>
-          <h2 className="interpretation-role mt-5">{analysis.role}</h2>
+          <div className="archive-caption">Personalized opportunity reading</div>
+          <h2 className="interpretation-role mt-5">{analysis.recruiterFeedback}</h2>
+          {meta?.note && <p className="analysis-note mt-5">{meta.note}</p>}
         </div>
         <div className="match-resonance">
-          <div className="archive-caption">ATS keyword match / resonance</div>
-          <div className="mt-3">{analysis.score}<span>%</span></div>
+          <div className="archive-caption">Match score</div>
+          <div className="mt-3">{analysis.matchScore}<span>%</span></div>
+          <small>{analysis.hiringProbability}% hiring probability</small>
         </div>
       </div>
 
       <div className="interpretation-grid">
-        <ResultPassage title="Experience level">
-          <p>{analysis.level}</p>
-        </ResultPassage>
-        <ResultPassage title="Required skills / extracted">
-          <TagFlow items={analysis.requiredSkills} tone="required" />
-        </ResultPassage>
-        <ResultPassage title="Already in your archive">
-          <TagFlow items={analysis.matched.length ? analysis.matched : ['No direct signal yet']} tone="present" />
+        <ResultPassage title="Matching skills">
+          <TagFlow items={analysis.matchingSkills.length ? analysis.matchingSkills : ['No strong overlap yet']} tone="present" />
         </ResultPassage>
         <ResultPassage title="Missing threads">
-          <TagFlow items={analysis.missing.length ? analysis.missing : ['No clear gap detected']} tone="missing" />
+          <TagFlow items={analysis.missingSkills.length ? analysis.missingSkills : ['No clear gap detected']} tone="missing" />
         </ResultPassage>
-        <ResultPassage className="intent-reading" title="Recruiter intent summary / interpreted">
-          <p>{analysis.intent}</p>
+        <ResultPassage title="Improvement suggestions">
+          <TagFlow items={analysis.improvementSuggestions.length ? analysis.improvementSuggestions : ['Tailor evidence to the role language']} tone="missing" />
+        </ResultPassage>
+        <ResultPassage title="Strongest projects">
+          <TagFlow items={analysis.strongestProjects.length ? analysis.strongestProjects : ['Add project memories to strengthen this reading']} tone="present" />
+        </ResultPassage>
+        <ResultPassage title="Resume focus areas">
+          <TagFlow items={analysis.resumeFocusAreas.length ? analysis.resumeFocusAreas : ['Summary', 'Projects', 'Skills']} tone="present" />
         </ResultPassage>
       </div>
     </motion.section>
@@ -658,6 +1516,8 @@ function OpportunityContours() {
 }
 
 function SkillField(props) {
+  const availableSuggestions = props.suggestedSkills.filter((skill) => !props.skills.includes(skill))
+
   return (
     <motion.div
       className="skill-field mt-14"
@@ -696,6 +1556,20 @@ function SkillField(props) {
           ))}
         </AnimatePresence>
       </div>
+      {props.skills.length === 0 && (
+        <p className="skill-empty mt-6">
+          Begin with one signal, then let the archive get more specific.
+        </p>
+      )}
+      {availableSuggestions.length > 0 && (
+        <div className="skill-suggestions mt-6">
+          {availableSuggestions.map((skill) => (
+            <button key={skill} onClick={() => props.addSuggestedSkill(skill)} type="button">
+              {skill}
+            </button>
+          ))}
+        </div>
+      )}
       <form className="add-skill mt-8 flex items-center gap-3" onSubmit={props.addSkill}>
         <Plus className="h-4 w-4 text-violet-200/55" />
         <input
@@ -737,6 +1611,17 @@ function ArchiveChapter({ chapter, draft, entries, index, open, onAdd, onChange,
             transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
           >
             <div className="memory-list">
+              {entries.length === 0 && (
+                <motion.div
+                  className="memory-row is-ghost"
+                  initial={{ opacity: 0, x: 14 }}
+                  animate={{ opacity: 1, x: 0 }}
+                >
+                  <div className="memory-title">{chapter.example.title}</div>
+                  <div className="memory-detail">{chapter.example.detail}</div>
+                  <div className="memory-date">{chapter.example.date}</div>
+                </motion.div>
+              )}
               {entries.map((entry, entryIndex) => (
                 <motion.div
                   className="memory-row"
