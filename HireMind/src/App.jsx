@@ -6,7 +6,8 @@ const navigation = [
   { label: 'Archive', path: '/vault' },
   { label: 'Opportunity', path: '/opportunity' },
   { label: 'Forge', path: '/forge' },
-  { label: 'Method', path: '#method' },
+  { label: 'Simulation', path: '/simulation' },
+  { label: 'Method', path: '/method' },
   { label: 'Stories', path: '#stories' },
 ]
 
@@ -66,10 +67,12 @@ const archiveChapters = [
 const openingSkills = ['Creative Coding', 'Interaction Design', 'React', 'Story Systems', 'Research']
 const readingStages = ['Reading the opportunity', 'Extracting role signals', 'Shaping the resume guidance']
 const forgeStages = ['Heating archive signals', 'Aligning ATS language', 'Forging resume structure']
+const simulationStages = ['Opening private review', 'Testing recruiter signals', 'Writing evaluation notes']
 const emptyVaultMemories = Object.fromEntries(archiveChapters.map((chapter) => [chapter.id, []]))
 const vaultProfileVersionKey = 'aethra-vault-profile-version'
 const supportedEvidenceTypes = ['application/pdf', 'image/png', 'image/jpeg']
 const opportunityAnalysisKey = 'aethra-opportunity-analysis'
+const forgedResumeKey = 'aethra-forged-resume'
 
 const sampleDescription = `Senior Product Designer - Intelligent Experiences
 
@@ -367,6 +370,20 @@ function normalizeResume(raw, profile) {
   }
 }
 
+function normalizeSimulation(raw) {
+  return {
+    shortlistDecision: String(raw.shortlistDecision || raw.decision || 'Maybe'),
+    hiringProbability: Number.isFinite(Number(raw.hiringProbability)) ? Math.max(0, Math.min(100, Math.round(Number(raw.hiringProbability)))) : 50,
+    recruiterSummary: String(raw.recruiterSummary || raw.summary || 'The recruiter review needs clearer evidence before making a strong decision.'),
+    topStrengths: toArray(raw.topStrengths),
+    redFlags: toArray(raw.redFlags),
+    missingSignals: toArray(raw.missingSignals),
+    interviewQuestions: toArray(raw.interviewQuestions),
+    resumeImprovements: toArray(raw.resumeImprovements),
+    finalAdvice: String(raw.finalAdvice || 'Tighten the resume around the role requirements and make the strongest proof easier to find.'),
+  }
+}
+
 function hasUsableGeminiKey(apiKey) {
   return Boolean(
     apiKey
@@ -377,6 +394,10 @@ function hasUsableGeminiKey(apiKey) {
 
 function readOpportunityAnalysis() {
   return readArchive(opportunityAnalysisKey, null)
+}
+
+function readForgedResume() {
+  return readArchive(forgedResumeKey, null)
 }
 
 function formatMemory(entry) {
@@ -406,6 +427,107 @@ function createFallbackResume(profile, opportunity) {
     ],
     tailoringNotes: analysis.improvementSuggestions || ['Prioritized archive evidence that best matches the analyzed opportunity.'],
   }, profile)
+}
+
+function createFallbackSimulation(profile, opportunity, resume) {
+  const analysis = opportunity?.analysis || {}
+  const matchScore = Number(analysis.matchScore || 56)
+  const resumeSkills = resume?.skills || []
+  const matchingSkills = analysis.matchingSkills || []
+  const missingSkills = analysis.missingSkills || []
+
+  return normalizeSimulation({
+    shortlistDecision: matchScore >= 82 ? 'Strong Yes' : matchScore >= 68 ? 'Yes' : matchScore >= 48 ? 'Maybe' : 'No',
+    hiringProbability: Math.max(20, Math.min(92, Math.round((matchScore + Number(analysis.hiringProbability || matchScore)) / 2))),
+    recruiterSummary: analysis.recruiterFeedback || `The candidate shows relevant signals for ${resume?.title || 'the role'}, but the recruiter would still look for proof depth and clearer outcomes.`,
+    topStrengths: matchingSkills.length ? matchingSkills : resumeSkills.slice(0, 4),
+    redFlags: missingSkills.length ? missingSkills.slice(0, 4) : ['Some impact metrics may need to be more visible'],
+    missingSignals: missingSkills.length ? missingSkills : ['Clearer quantified outcomes', 'Role-specific proof points'],
+    interviewQuestions: [
+      'Which project best proves your fit for this role, and what changed because of your work?',
+      'Tell me about a time you handled ambiguity in a product or technical decision.',
+      'Which missing requirement are you actively strengthening right now?',
+    ],
+    resumeImprovements: analysis.improvementSuggestions || resume?.tailoringNotes || ['Move the strongest matching evidence closer to the top of the resume.'],
+    finalAdvice: 'Make the first scan effortless: mirror role language, prove outcomes, and keep the resume focused on the opportunity.',
+  })
+}
+
+async function runRecruiterSimulation(profile, opportunity, resume) {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY
+  const fallbackResult = createFallbackSimulation(profile, opportunity, resume)
+
+  if (!hasUsableGeminiKey(apiKey)) {
+    return {
+      result: fallbackResult,
+      source: 'fallback',
+      note: 'Gemini API key is missing, so AETHRA used a local recruiter review draft.',
+    }
+  }
+
+  const prompt = `Simulate how a human recruiter would evaluate this candidate for the selected job.
+Use the candidate profile, job description, job analysis, and generated resume.
+Return only valid JSON with exactly these fields:
+{
+  "shortlistDecision": "Strong Yes / Yes / Maybe / No",
+  "hiringProbability": 0,
+  "recruiterSummary": "",
+  "topStrengths": [],
+  "redFlags": [],
+  "missingSignals": [],
+  "interviewQuestions": [],
+  "resumeImprovements": [],
+  "finalAdvice": ""
+}
+Candidate profile: ${JSON.stringify(profile)}
+Job description: ${opportunity.jobDescription}
+Job analysis: ${JSON.stringify(opportunity.analysis)}
+Generated resume: ${JSON.stringify(resume)}`
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.25,
+        },
+      }),
+    })
+
+    if (!response.ok) {
+      return {
+        result: fallbackResult,
+        source: 'fallback',
+        note: `${await readGeminiError(response)} AETHRA used a local recruiter review draft instead.`,
+      }
+    }
+
+    const payload = await response.json()
+    const text = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('\n')
+
+    if (!text) {
+      return {
+        result: fallbackResult,
+        source: 'fallback',
+        note: 'Gemini returned an empty recruiter review, so AETHRA used a local recruiter review draft instead.',
+      }
+    }
+
+    return {
+      result: normalizeSimulation(JSON.parse(extractJson(text))),
+      source: 'gemini',
+      note: 'Gemini simulated this private recruiter review from the full candidate packet.',
+    }
+  } catch (error) {
+    return {
+      result: fallbackResult,
+      source: 'fallback',
+      note: `Recruiter simulation could not complete cleanly (${error.message}). AETHRA used a local recruiter review draft instead.`,
+    }
+  }
 }
 
 async function generateAdaptiveResume(profile, opportunity) {
@@ -590,7 +712,8 @@ function App() {
   const isVault = path === '/vault'
   const isOpportunity = path === '/opportunity'
   const isForge = path === '/forge'
-  const insideArchive = isVault || isOpportunity || isForge
+  const isSimulation = path === '/simulation'
+  const insideArchive = isVault || isOpportunity || isForge || isSimulation
 
   return (
     <div className="exhibition relative min-h-screen overflow-hidden bg-black text-white" onPointerMove={handlePointerMove}>
@@ -603,6 +726,8 @@ function App() {
           <OpportunityReader key="opportunity" navigate={navigate} />
         ) : isForge ? (
           <ResumeForge key="forge" navigate={navigate} />
+        ) : isSimulation ? (
+          <RecruiterSimulation key="simulation" navigate={navigate} />
         ) : (
           <Landing key="landing" navigate={navigate} />
         )}
@@ -1192,6 +1317,11 @@ function ResumeForge({ navigate }) {
     const { note, result, source } = await generateAdaptiveResume(profile, opportunity)
     setResume(result)
     setMeta({ note, source })
+    window.localStorage.setItem(forgedResumeKey, JSON.stringify({
+      resume: result,
+      meta: { note, source },
+      updatedAt: new Date().toISOString(),
+    }))
     setState('complete')
   }
 
@@ -1360,6 +1490,176 @@ function resumeToText(resume) {
   })
 
   return lines.join('\n')
+}
+
+function RecruiterSimulation({ navigate }) {
+  const [state, setState] = useState('idle')
+  const [stage, setStage] = useState(0)
+  const [review, setReview] = useState(null)
+  const [meta, setMeta] = useState(null)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    if (state !== 'simulating') return undefined
+    const timers = simulationStages.map((_, index) => window.setTimeout(() => setStage(index + 1), 360 + index * 520))
+    return () => timers.forEach((timer) => window.clearTimeout(timer))
+  }, [state])
+
+  async function runSimulation() {
+    const profile = readVaultProfile()
+    const opportunity = readOpportunityAnalysis()
+    const forged = readForgedResume()
+
+    if (!hasVaultData(profile)) {
+      setMessage('Complete your Career Archive first.')
+      setState('blocked')
+      return
+    }
+
+    if (!opportunity?.jobDescription || !opportunity?.analysis) {
+      setMessage('Analyze an opportunity first.')
+      setState('blocked')
+      return
+    }
+
+    if (!forged?.resume) {
+      setMessage('Generate an adaptive resume first.')
+      setState('blocked')
+      return
+    }
+
+    setReview(null)
+    setMeta(null)
+    setMessage('')
+    setStage(0)
+    setState('simulating')
+
+    const { note, result, source } = await runRecruiterSimulation(profile, opportunity, forged.resume)
+    setReview(result)
+    setMeta({ note, source })
+    setState('complete')
+  }
+
+  function destinationForMessage() {
+    if (message.includes('Archive')) return '/vault'
+    if (message.includes('opportunity')) return '/opportunity'
+    return '/forge'
+  }
+
+  return (
+    <motion.main
+      className="simulation-page relative z-10 mx-auto w-full max-w-[1540px] px-6 pb-20 pt-10 md:px-10 lg:px-14 lg:pt-16"
+      initial={{ opacity: 0, y: 22 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 16 }}
+      transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
+    >
+      <div className="simulation-hero">
+        <div>
+          <div className="eyebrow flex items-center gap-5">
+            <span className="h-px w-14 bg-violet-200/45" />
+            Private recruiter review
+          </div>
+          <h1 className="simulation-title mt-10">
+            RECRUITER
+            <span>ROOM</span>
+          </h1>
+        </div>
+        <div className="simulation-command">
+          <p>AETHRA opens the packet like a recruiter would: archive, role, analysis, and forged resume in one quiet review.</p>
+          <button className="simulation-button group" disabled={state === 'simulating'} onClick={runSimulation} type="button">
+            {state === 'simulating' ? 'Reviewing' : 'Run Recruiter Simulation'}
+            <Sparkles className="h-4 w-4 transition-transform duration-500 group-hover:rotate-12" />
+          </button>
+        </div>
+      </div>
+
+      <AnimatePresence mode="wait">
+        {state === 'blocked' && (
+          <motion.section className="simulation-blocked mt-16" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+            <div className="archive-caption">Review unavailable</div>
+            <p>{message}</p>
+            <button className="return-vault mt-8" onClick={() => navigate(destinationForMessage())} type="button">
+              <ArrowLeft className="h-4 w-4" />
+              Continue setup
+            </button>
+          </motion.section>
+        )}
+
+        {state === 'simulating' && (
+          <SimulationSequence key="simulating" stage={stage} />
+        )}
+
+        {state === 'complete' && review && (
+          <RecruiterReview key="review" meta={meta} review={review} />
+        )}
+      </AnimatePresence>
+    </motion.main>
+  )
+}
+
+function SimulationSequence({ stage }) {
+  return (
+    <motion.section className="simulation-sequence mt-16" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, y: -10 }}>
+      <div className="archive-caption">Recruiter packet opening</div>
+      <div className="mt-8 grid gap-6 md:grid-cols-3">
+        {simulationStages.map((message, index) => (
+          <motion.div className={`reading-stage ${stage > index ? 'is-heard' : ''}`} animate={{ opacity: stage > index ? 1 : 0.25 }} key={message}>
+            <span>{`0${index + 1}`}</span>
+            {message}
+          </motion.div>
+        ))}
+      </div>
+      <motion.div className="simulation-line mt-10" animate={{ scaleX: [0.06, 1, 0.72], opacity: [0.2, 1, 0.5] }} transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }} />
+    </motion.section>
+  )
+}
+
+function RecruiterReview({ meta, review }) {
+  return (
+    <motion.section className="recruiter-review mt-16" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+      <div className="review-brief">
+        <div>
+          <div className="archive-caption">Shortlist decision</div>
+          <h2>{review.shortlistDecision}</h2>
+          {meta?.note && <p>{meta.note}</p>}
+        </div>
+        <div className="probability-seal">
+          <span>{review.hiringProbability}%</span>
+          Hiring probability
+        </div>
+      </div>
+
+      <article className="review-summary">
+        <div className="archive-caption">Recruiter summary</div>
+        <p>{review.recruiterSummary}</p>
+      </article>
+
+      <div className="review-grid">
+        <ReviewColumn title="Top strengths" items={review.topStrengths} tone="positive" />
+        <ReviewColumn title="Red flags" items={review.redFlags} tone="alert" />
+        <ReviewColumn title="Missing signals" items={review.missingSignals} />
+        <ReviewColumn title="Interview questions" items={review.interviewQuestions} />
+        <ReviewColumn title="Resume improvements" items={review.resumeImprovements} />
+        <article className="review-card final-advice">
+          <div className="archive-caption">Final advice</div>
+          <p>{review.finalAdvice}</p>
+          <button type="button">Improve Resume Based on Feedback</button>
+        </article>
+      </div>
+    </motion.section>
+  )
+}
+
+function ReviewColumn({ items, title, tone = '' }) {
+  return (
+    <article className={`review-card ${tone}`}>
+      <div className="archive-caption">{title}</div>
+      <ul>
+        {(items.length ? items : ['No major signal detected.']).map((item) => <li key={item}>{item}</li>)}
+      </ul>
+    </article>
+  )
 }
 
 function OpportunityReader({ navigate }) {
