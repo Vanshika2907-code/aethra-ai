@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion, useMotionTemplate, useMotionValue, useSpring } from 'framer-motion'
-import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, Plus, Sparkles, Upload, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUpRight, Plus, Sparkles, Upload, X } from 'lucide-react'
 
 const navigation = [
   { label: 'Archive', path: '/vault' },
@@ -166,29 +166,35 @@ function readVaultProfile() {
   const skills = readArchive('aethra-vault-skills', [])
   const normalizedSkills = Array.isArray(skills) ? skills : []
   const memories = readVaultMemories()
+  const personal = readArchive('aethra-vault-personal', {})
 
   if (isLegacySeededProfile(normalizedSkills, memories)) {
     return {
+      personal: {},
       skills: [],
       memories: emptyVaultMemories,
     }
   }
 
   return {
+    personal,
     skills: normalizedSkills,
     memories,
   }
 }
 
 function hasVaultData(profile) {
-  return profile.skills.length > 0 || Object.values(profile.memories).some((items) => items.length > 0)
+  return Object.values(profile.personal || {}).some(Boolean)
+    || profile.skills.length > 0
+    || Object.values(profile.memories).some((items) => items.length > 0)
 }
 
 function flattenProfileText(profile) {
+  const personalText = Object.values(profile.personal || {}).join(' ')
   const memoryText = archiveChapters.flatMap((chapter) => (
     profile.memories[chapter.id].map((entry) => `${chapter.title}: ${entry.title} ${entry.detail} ${entry.date}`)
   ))
-  return profile.skills.concat(memoryText).join(' ').toLowerCase()
+  return [personalText].concat(profile.skills, memoryText).join(' ').toLowerCase()
 }
 
 function createFallbackAnalysis(description, candidateProfile) {
@@ -322,11 +328,6 @@ function toArray(value) {
   return []
 }
 
-function asArray(value) {
-  if (Array.isArray(value)) return value.filter(Boolean)
-  if (typeof value === 'string' && value.trim()) return [value]
-  return []
-}
 
 function normalizeAnalysis(raw) {
   return {
@@ -353,179 +354,6 @@ function hasUsableGeminiKey(apiKey) {
     && apiKey !== 'your_api_key_here'
     && !apiKey.includes('NOT_SET')
   )
-}
-
-function normalizeExtractedItem(item) {
-  if (typeof item === 'string') {
-    return { title: item, detail: 'Extracted from uploaded evidence', date: '', confidence: 68 }
-  }
-
-  return {
-    title: String(item?.title || item?.name || item?.eventName || item?.degree || 'Untitled evidence'),
-    detail: String(item?.detail || item?.description || item?.organization || item?.issuer || item?.issuingOrganization || 'Extracted from uploaded evidence'),
-    date: String(item?.date || item?.issuedDate || item?.period || ''),
-    confidence: Number.isFinite(Number(item?.confidence)) ? Math.max(0, Math.min(100, Math.round(Number(item.confidence)))) : 72,
-  }
-}
-
-function normalizeExtraction(raw, fileName = '') {
-  const memories = Object.fromEntries(
-    archiveChapters.map((chapter) => [
-      chapter.id,
-      asArray(raw?.[chapter.id]).map(normalizeExtractedItem),
-    ]),
-  )
-
-  return {
-    fileName,
-    documentType: String(raw?.documentType || raw?.type || 'Career evidence'),
-    confidence: Number.isFinite(Number(raw?.confidence)) ? Math.max(0, Math.min(100, Math.round(Number(raw.confidence)))) : 74,
-    skills: asArray(raw?.skills).map((skill) => (
-      typeof skill === 'string'
-        ? { name: skill, confidence: 70 }
-        : {
-          name: String(skill?.name || skill?.title || 'Skill signal'),
-          confidence: Number.isFinite(Number(skill?.confidence)) ? Math.max(0, Math.min(100, Math.round(Number(skill.confidence)))) : 70,
-        }
-    )),
-    memories,
-    organizations: toArray(raw?.issuingOrganizations || raw?.organizations),
-    technologies: toArray(raw?.technologies),
-    note: String(raw?.summary || raw?.note || 'AETHRA found career evidence in this document. Review each memory before saving it.'),
-  }
-}
-
-function createFallbackExtraction(file) {
-  const name = file.name.toLowerCase()
-
-  if (name.includes('certificate') || name.includes('aws') || name.includes('cert')) {
-    return normalizeExtraction({
-      documentType: 'Certificate',
-      confidence: 64,
-      certifications: [{
-        title: name.includes('aws') ? 'AWS Certification' : 'Professional Certification',
-        detail: 'Issuing organization detected from uploaded certificate',
-        date: '',
-        confidence: 62,
-      }],
-      skills: ['Cloud fundamentals', 'Technical learning'],
-      issuingOrganizations: name.includes('aws') ? ['Amazon Web Services'] : [],
-      technologies: name.includes('aws') ? ['AWS'] : [],
-    }, file.name)
-  }
-
-  if (name.includes('transcript')) {
-    return normalizeExtraction({
-      documentType: 'Transcript',
-      confidence: 62,
-      education: [{ title: 'Academic transcript', detail: 'Education evidence extracted from transcript', date: '', confidence: 61 }],
-      skills: ['Academic foundation'],
-    }, file.name)
-  }
-
-  return normalizeExtraction({
-    documentType: file.type === 'application/pdf' ? 'Resume PDF' : 'Achievement image',
-    confidence: 58,
-    skills: ['Communication', 'Project ownership'],
-    projects: [{ title: 'Uploaded portfolio evidence', detail: 'A project signal was detected in the document', date: '', confidence: 56 }],
-    achievements: [{ title: 'Documented achievement', detail: 'Achievement evidence found in uploaded file', date: '', confidence: 54 }],
-  }, file.name)
-}
-
-function readFileAsBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result).split(',')[1])
-    reader.onerror = () => reject(new Error('AETHRA could not read this file.'))
-    reader.readAsDataURL(file)
-  })
-}
-
-async function analyzeArchiveDocument(file) {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY
-  const fallbackResult = createFallbackExtraction(file)
-
-  if (!hasUsableGeminiKey(apiKey)) {
-    return {
-      result: fallbackResult,
-      source: 'fallback',
-      note: 'Gemini API key is missing, so AETHRA created a cautious local extraction draft.',
-    }
-  }
-
-  const base64Data = await readFileAsBase64(file)
-  const prompt = `Analyze this uploaded career evidence document using vision understanding.
-Return only valid JSON with these fields:
-documentType,
-confidence,
-skills,
-certifications,
-projects,
-education,
-internships,
-achievements,
-issuingOrganizations,
-dates,
-technologies,
-summary.
-Each extracted skill or archive item should include confidence when possible.
-If a field is not visible, return an empty array.`
-
-  try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              {
-                inlineData: {
-                  mimeType: file.type,
-                  data: base64Data,
-                },
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.15,
-        },
-      }),
-    })
-
-    if (!response.ok) {
-      return {
-        result: fallbackResult,
-        source: 'fallback',
-        note: `${await readGeminiError(response)} AETHRA created a local extraction draft instead.`,
-      }
-    }
-
-    const payload = await response.json()
-    const text = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('\n')
-    if (!text) {
-      return {
-        result: fallbackResult,
-        source: 'fallback',
-        note: 'Gemini returned no extraction text, so AETHRA created a local extraction draft instead.',
-      }
-    }
-
-    return {
-      result: normalizeExtraction(JSON.parse(extractJson(text)), file.name),
-      source: 'gemini',
-      note: 'Gemini Vision interpreted this evidence. Review the memories before saving.',
-    }
-  } catch (error) {
-    return {
-      result: fallbackResult,
-      source: 'fallback',
-      note: `Document understanding could not complete cleanly (${error.message}). AETHRA created a local extraction draft instead.`,
-    }
-  }
 }
 
 async function analyzeJobDescription(jobDescription, candidateProfile) {
@@ -773,34 +601,108 @@ function RevealWord({ children, gradient = false, delay = 0.17 }) {
   )
 }
 
-function CareerVault({ navigate }) {
-  const [skills, setSkills] = useState(() => readVaultProfile().skills)
-  const [skillDraft, setSkillDraft] = useState('')
-  const [editingSkill, setEditingSkill] = useState(null)
-  const [editDraft, setEditDraft] = useState('')
-  const [openChapter, setOpenChapter] = useState('projects')
-  const [entries, setEntries] = useState(() => readVaultProfile().memories)
-  const [ingestion, setIngestion] = useState({
-    status: 'idle',
-    fileName: '',
-    extraction: null,
-    note: '',
+const sectionSteps = [
+  { id: 'personal', label: 'Personal Details' },
+  { id: 'education', label: 'Education' },
+  { id: 'skills', label: 'Skills' },
+  { id: 'projects', label: 'Projects' },
+  { id: 'internships', label: 'Internships' },
+  { id: 'certifications', label: 'Certifications' },
+  { id: 'achievements', label: 'Achievements' },
+]
+
+const repeatableSections = sectionSteps.filter((step) => !['personal', 'skills'].includes(step.id)).map((step) => step.id)
+
+const proofLabels = {
+  education: 'Upload transcript or marksheet',
+  projects: 'Upload project report, demo screenshot, or certificate',
+  internships: 'Upload offer letter or completion certificate',
+  certifications: 'Upload certificate PDF or image',
+  achievements: 'Upload certificate or proof screenshot',
+}
+
+const emptyEntry = {
+  title: '',
+  detail: '',
+  date: '',
+  organization: '',
+  technologies: '',
+  proof: null,
+}
+
+function createEntry(seed = {}) {
+  return { ...emptyEntry, ...seed, proof: seed.proof || null }
+}
+
+function normalizeBuilderEntries(memories) {
+  return Object.fromEntries(
+    archiveChapters.map((chapter) => [
+      chapter.id,
+      (memories[chapter.id] || []).map((entry) => createEntry(entry)),
+    ]),
+  )
+}
+
+function readPersonalDetails() {
+  return readArchive('aethra-vault-personal', {
+    fullName: '',
+    headline: '',
+    email: '',
+    location: '',
+    portfolio: '',
+    summary: '',
   })
-  const [drafts, setDrafts] = useState(() => Object.fromEntries(
-    archiveChapters.map((chapter) => [chapter.id, { title: '', detail: '', date: '' }]),
+}
+
+function persistVaultData(personal, skills, entries) {
+  const memoryPayload = Object.fromEntries(
+    archiveChapters.map((chapter) => [chapter.id, entries[chapter.id] || []]),
+  )
+
+  window.localStorage.setItem(vaultProfileVersionKey, '2')
+  window.localStorage.setItem('aethra-vault-personal', JSON.stringify(personal))
+  window.localStorage.setItem('aethra-vault-skills', JSON.stringify(skills))
+  window.localStorage.setItem('aethra-vault-memories', JSON.stringify(memoryPayload))
+  archiveChapters.forEach((chapter) => {
+    window.localStorage.setItem(`aethra-vault-${chapter.id}`, JSON.stringify(memoryPayload[chapter.id] || []))
+  })
+}
+
+function CareerVault({ navigate }) {
+  const profile = readVaultProfile()
+  const [activeSection, setActiveSection] = useState('personal')
+  const [personal, setPersonal] = useState(() => readPersonalDetails())
+  const [skills, setSkills] = useState(() => profile.skills)
+  const [skillDraft, setSkillDraft] = useState('')
+  const [entries, setEntries] = useState(() => normalizeBuilderEntries(profile.memories))
+  const [forms, setForms] = useState(() => Object.fromEntries(
+    repeatableSections.map((section) => [section, createEntry()]),
   ))
+  const [editing, setEditing] = useState({})
+  const [saveState, setSaveState] = useState('idle')
+
+  const memoryCount = Object.values(entries).reduce((count, list) => count + list.length, 0)
+  const completedSections = sectionSteps.filter((step) => sectionComplete(step.id, personal, skills, entries)).length
+  const progress = Math.round((completedSections / sectionSteps.length) * 100)
 
   useEffect(() => {
-    window.localStorage.setItem(vaultProfileVersionKey, '2')
-    window.localStorage.setItem('aethra-vault-skills', JSON.stringify(skills))
-  }, [skills])
+    const timer = window.setTimeout(() => persistVaultData(personal, skills, entries), 350)
+    return () => window.clearTimeout(timer)
+  }, [personal, skills, entries])
 
-  useEffect(() => {
-    window.localStorage.setItem('aethra-vault-memories', JSON.stringify(entries))
-    archiveChapters.forEach((chapter) => {
-      window.localStorage.setItem(`aethra-vault-${chapter.id}`, JSON.stringify(entries[chapter.id] || []))
-    })
-  }, [entries])
+  function persistArchive() {
+    persistVaultData(personal, skills, entries)
+  }
+
+  function saveArchive() {
+    persistArchive()
+    setSaveState('saved')
+    window.setTimeout(() => setSaveState('idle'), 1600)
+  }
+
+  function updatePersonal(field, value) {
+    setPersonal({ ...personal, [field]: value })
+  }
 
   function addSkill(event) {
     event.preventDefault()
@@ -810,138 +712,57 @@ function CareerVault({ navigate }) {
     setSkillDraft('')
   }
 
-  function addSuggestedSkill(skill) {
-    if (skills.includes(skill)) return
-    setSkills([...skills, skill])
+  function updateForm(section, field, value) {
+    setForms({ ...forms, [section]: { ...forms[section], [field]: value } })
   }
 
-  function beginSkillEdit(skill) {
-    setEditingSkill(skill)
-    setEditDraft(skill)
+  function attachProof(section, file) {
+    if (!file || !supportedEvidenceTypes.includes(file.type)) return
+    updateForm(section, 'proof', {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      uploadedAt: new Date().toISOString(),
+    })
   }
 
-  function commitSkillEdit() {
-    const renamed = editDraft.trim()
-    if (renamed) {
-      setSkills(skills.map((skill) => (skill === editingSkill ? renamed : skill)))
+  function saveEntry(section) {
+    const draft = forms[section]
+    if (!draft.title.trim() && !draft.detail.trim()) return
+    const entry = createEntry({
+      ...draft,
+      title: draft.title.trim(),
+      detail: draft.detail.trim(),
+      date: draft.date.trim(),
+      organization: draft.organization.trim(),
+      technologies: draft.technologies.trim(),
+    })
+    const editIndex = editing[section]
+    const nextList = Number.isInteger(editIndex)
+      ? entries[section].map((item, index) => (index === editIndex ? entry : item))
+      : [...entries[section], entry]
+
+    setEntries({ ...entries, [section]: nextList })
+    setForms({ ...forms, [section]: createEntry() })
+    setEditing({ ...editing, [section]: null })
+  }
+
+  function editEntry(section, index) {
+    setForms({ ...forms, [section]: createEntry(entries[section][index]) })
+    setEditing({ ...editing, [section]: index })
+  }
+
+  function deleteEntry(section, index) {
+    setEntries({ ...entries, [section]: entries[section].filter((_, entryIndex) => entryIndex !== index) })
+    if (editing[section] === index) {
+      setForms({ ...forms, [section]: createEntry() })
+      setEditing({ ...editing, [section]: null })
     }
-    setEditingSkill(null)
   }
 
-  function removeSkill(skillToRemove) {
-    setSkills(skills.filter((skill) => skill !== skillToRemove))
-  }
-
-  function updateDraft(section, field, value) {
-    setDrafts({ ...drafts, [section]: { ...drafts[section], [field]: value } })
-  }
-
-  function addMemory(event, section) {
-    event.preventDefault()
-    const draft = drafts[section]
-    if (!draft.title.trim()) return
-    setEntries({ ...entries, [section]: [...entries[section], draft] })
-    setDrafts({ ...drafts, [section]: { title: '', detail: '', date: '' } })
-  }
-
-  async function handleEvidenceUpload(event) {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) return
-
-    if (!supportedEvidenceTypes.includes(file.type)) {
-      setIngestion({
-        status: 'error',
-        fileName: file.name,
-        extraction: null,
-        note: 'AETHRA can read PDF, PNG, JPG, and JPEG evidence files.',
-      })
-      return
-    }
-
-    setIngestion({
-      status: 'processing',
-      fileName: file.name,
-      extraction: null,
-      note: 'Reading visual evidence and listening for career signals.',
-    })
-
-    const { note, result, source } = await analyzeArchiveDocument(file)
-    setIngestion({
-      status: 'review',
-      fileName: file.name,
-      extraction: result,
-      note: `${note} Source: ${source}.`,
-    })
-  }
-
-  function updateExtractedSkill(index, value) {
-    const nextSkills = ingestion.extraction.skills.map((skill, skillIndex) => (
-      skillIndex === index ? { ...skill, name: value } : skill
-    ))
-    setIngestion({ ...ingestion, extraction: { ...ingestion.extraction, skills: nextSkills } })
-  }
-
-  function removeExtractedSkill(index) {
-    const nextSkills = ingestion.extraction.skills.filter((_, skillIndex) => skillIndex !== index)
-    setIngestion({ ...ingestion, extraction: { ...ingestion.extraction, skills: nextSkills } })
-  }
-
-  function updateExtractedMemory(section, index, field, value) {
-    const nextSection = ingestion.extraction.memories[section].map((entry, entryIndex) => (
-      entryIndex === index ? { ...entry, [field]: value } : entry
-    ))
-    setIngestion({
-      ...ingestion,
-      extraction: {
-        ...ingestion.extraction,
-        memories: { ...ingestion.extraction.memories, [section]: nextSection },
-      },
-    })
-  }
-
-  function removeExtractedMemory(section, index) {
-    const nextSection = ingestion.extraction.memories[section].filter((_, entryIndex) => entryIndex !== index)
-    setIngestion({
-      ...ingestion,
-      extraction: {
-        ...ingestion.extraction,
-        memories: { ...ingestion.extraction.memories, [section]: nextSection },
-      },
-    })
-  }
-
-  function saveExtraction() {
-    if (!ingestion.extraction) return
-    const extractedSkills = ingestion.extraction.skills
-      .map((skill) => skill.name.trim())
-      .filter(Boolean)
-    const nextSkills = Array.from(new Set([...skills, ...extractedSkills]))
-    const nextEntries = Object.fromEntries(
-      archiveChapters.map((chapter) => [
-        chapter.id,
-        [
-          ...entries[chapter.id],
-          ...ingestion.extraction.memories[chapter.id]
-            .filter((entry) => entry.title.trim())
-            .map((entry) => ({
-              title: entry.title.trim(),
-              detail: entry.detail.trim(),
-              date: entry.date.trim(),
-              confidence: entry.confidence,
-            })),
-        ],
-      ]),
-    )
-
-    setSkills(nextSkills)
-    setEntries(nextEntries)
-    setIngestion({
-      status: 'idle',
-      fileName: '',
-      extraction: null,
-      note: 'Evidence remembered inside the archive.',
-    })
+  function resetEntry(section) {
+    setForms({ ...forms, [section]: createEntry() })
+    setEditing({ ...editing, [section]: null })
   }
 
   return (
@@ -953,232 +774,250 @@ function CareerVault({ navigate }) {
       transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
     >
       <VaultContours />
-      <div className="relative z-10 grid gap-12 lg:grid-cols-[.82fr_1.18fr] lg:gap-20">
-        <section className="lg:sticky lg:top-12 lg:self-start">
-          <div className="eyebrow flex items-center gap-5">
-            <span className="h-px w-14 bg-violet-200/45" />
-            Personal archive / in progress
+      <div className="relative z-10">
+        <section className="vault-builder-hero">
+          <div>
+            <div className="eyebrow flex items-center gap-5">
+              <span className="h-px w-14 bg-violet-200/45" />
+              Structured career archive
+            </div>
+            <h1 className="vault-title mt-10">
+              CAREER
+              <span>PROFILE</span>
+            </h1>
           </div>
-          <h1 className="vault-title mt-10">
-            CAREER
-            <span>VAULT</span>
-          </h1>
-          <p className="manifesto mt-10 max-w-sm">
-            Gather the fragments of your practice. Name what you know, remember what you made, and let a portrait slowly emerge.
-          </p>
-
-          <SkillField
-            addSkill={addSkill}
-            beginSkillEdit={beginSkillEdit}
-            commitSkillEdit={commitSkillEdit}
-            editDraft={editDraft}
-            editingSkill={editingSkill}
-            removeSkill={removeSkill}
-            addSuggestedSkill={addSuggestedSkill}
-            setEditDraft={setEditDraft}
-            setSkillDraft={setSkillDraft}
-            skillDraft={skillDraft}
-            skills={skills}
-            suggestedSkills={openingSkills}
-          />
-          <EvidenceIngestion
-            ingestion={ingestion}
-            onCancel={() => setIngestion({ status: 'idle', fileName: '', extraction: null, note: '' })}
-            onFile={handleEvidenceUpload}
-            onRemoveMemory={removeExtractedMemory}
-            onRemoveSkill={removeExtractedSkill}
-            onSave={saveExtraction}
-            onUpdateMemory={updateExtractedMemory}
-            onUpdateSkill={updateExtractedSkill}
-          />
+          <div className="vault-save-panel">
+            <p>A cleaner archive for the intelligence layer: profile fields, proof, and career memories saved as one living record.</p>
+            <button className="save-archive" onClick={saveArchive} type="button">
+              {saveState === 'saved' ? 'Archive saved' : 'Save Archive'}
+            </button>
+          </div>
         </section>
 
-        <section className="archive-stream pt-4 lg:pt-16">
-          <div className="mb-12 flex items-end justify-between gap-6">
-            <div>
-              <div className="archive-caption">Memories collected</div>
-              <div className="mt-4 text-4xl font-light tracking-[-0.06em] text-white">
-                {Object.values(entries).reduce((count, list) => count + list.length, 0).toString().padStart(2, '0')}
-              </div>
-            </div>
-            <p className="max-w-[220px] text-right text-xs leading-6 text-white/36">
-              Open a chapter to preserve a new moment in your evolving identity.
-            </p>
-          </div>
+        <div className="vault-builder mt-14">
+          <aside className="vault-steps">
+            <div className="archive-caption">Profile completion</div>
+            <div className="vault-progress mt-5"><span style={{ width: `${progress}%` }} /></div>
+            <div className="mt-3 text-sm text-white/58">{progress}% remembered</div>
+            <nav className="mt-8">
+              {sectionSteps.map((step, index) => (
+                <button
+                  className={`vault-step ${activeSection === step.id ? 'is-active' : ''} ${sectionComplete(step.id, personal, skills, entries) ? 'is-complete' : ''}`}
+                  key={step.id}
+                  onClick={() => setActiveSection(step.id)}
+                  type="button"
+                >
+                  <span>{String(index + 1).padStart(2, '0')}</span>
+                  {step.label}
+                </button>
+              ))}
+            </nav>
+            <ArchivePreview entries={entries} memoryCount={memoryCount} navigate={navigate} personal={personal} skills={skills} />
+          </aside>
 
-          {archiveChapters.map((chapter, index) => (
-            <ArchiveChapter
-              chapter={chapter}
-              draft={drafts[chapter.id]}
-              entries={entries[chapter.id]}
-              index={index}
-              key={chapter.id}
-              open={openChapter === chapter.id}
-              onAdd={addMemory}
-              onChange={updateDraft}
-              onToggle={() => setOpenChapter(openChapter === chapter.id ? null : chapter.id)}
-            />
-          ))}
-          <motion.div
-            className="vault-continuation mt-16 flex flex-col items-start justify-between gap-7 sm:flex-row sm:items-end"
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.48, duration: 0.65 }}
-          >
-            <div>
-              <div className="archive-caption">Next passage</div>
-              <p className="mt-4 max-w-[360px] text-sm leading-7 text-white/48">
-                Bring an opportunity into the archive. AETHRA will read its language against the identity you have begun to shape.
-              </p>
-            </div>
-            <RouteButton label="Read an opportunity" navigate={navigate} path="/opportunity" />
-          </motion.div>
-        </section>
+          <section className="vault-form-stage">
+            <AnimatePresence mode="wait">
+              <motion.div
+                animate={{ opacity: 1, y: 0 }}
+                className="vault-form-card"
+                exit={{ opacity: 0, y: -12 }}
+                initial={{ opacity: 0, y: 16 }}
+                key={activeSection}
+                transition={{ duration: 0.42, ease: [0.16, 1, 0.3, 1] }}
+              >
+                {activeSection === 'personal' ? (
+                  <PersonalSection personal={personal} updatePersonal={updatePersonal} />
+                ) : activeSection === 'skills' ? (
+                  <SkillsSection addSkill={addSkill} setSkillDraft={setSkillDraft} skillDraft={skillDraft} skills={skills} setSkills={setSkills} />
+                ) : (
+                  <RepeatableSection
+                    entries={entries[activeSection]}
+                    form={forms[activeSection]}
+                    isEditing={Number.isInteger(editing[activeSection])}
+                    onAttachProof={(file) => attachProof(activeSection, file)}
+                    onDelete={(index) => deleteEntry(activeSection, index)}
+                    onEdit={(index) => editEntry(activeSection, index)}
+                    onReset={() => resetEntry(activeSection)}
+                    onSave={() => saveEntry(activeSection)}
+                    onUpdate={(field, value) => updateForm(activeSection, field, value)}
+                    section={activeSection}
+                  />
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </section>
+        </div>
       </div>
     </motion.main>
   )
 }
 
-function EvidenceIngestion({
-  ingestion,
-  onCancel,
-  onFile,
-  onRemoveMemory,
-  onRemoveSkill,
-  onSave,
-  onUpdateMemory,
-  onUpdateSkill,
-}) {
-  const extraction = ingestion.extraction
-  const extractedMemoryCount = extraction
-    ? Object.values(extraction.memories).reduce((count, list) => count + list.length, 0)
-    : 0
+function sectionComplete(section, personal, skills, entries) {
+  if (section === 'personal') return Boolean(personal.fullName || personal.headline || personal.email)
+  if (section === 'skills') return skills.length > 0
+  return (entries[section] || []).length > 0
+}
+
+function PersonalSection({ personal, updatePersonal }) {
+  return (
+    <>
+      <SectionHeader eyebrow="01 / personal details" title="The human signal before the evidence." />
+      <div className="profile-grid mt-8">
+        <Field label="Full name" onChange={(value) => updatePersonal('fullName', value)} value={personal.fullName} />
+        <Field label="Headline" onChange={(value) => updatePersonal('headline', value)} placeholder="Frontend engineer, product designer..." value={personal.headline} />
+        <Field label="Email" onChange={(value) => updatePersonal('email', value)} value={personal.email} />
+        <Field label="Location" onChange={(value) => updatePersonal('location', value)} value={personal.location} />
+        <Field label="Portfolio / LinkedIn" onChange={(value) => updatePersonal('portfolio', value)} value={personal.portfolio} />
+      </div>
+      <Field area label="Profile summary" onChange={(value) => updatePersonal('summary', value)} placeholder="A short identity note for recruiters and AETHRA's analyzer..." value={personal.summary} />
+    </>
+  )
+}
+
+function SkillsSection({ addSkill, setSkillDraft, setSkills, skillDraft, skills }) {
+  return (
+    <>
+      <SectionHeader eyebrow="03 / skills" title="Shape the vocabulary AETHRA should recognize." />
+      <form className="builder-skill-input mt-8" onSubmit={addSkill}>
+        <Plus className="h-4 w-4" />
+        <input onChange={(event) => setSkillDraft(event.target.value)} placeholder="Add a skill, tool, technology, or method" value={skillDraft} />
+        <button type="submit">Add</button>
+      </form>
+      <div className="builder-skill-cloud mt-7">
+        {skills.map((skill) => (
+          <span key={skill}>
+            {skill}
+            <button aria-label={`Remove ${skill}`} onClick={() => setSkills(skills.filter((item) => item !== skill))} type="button">
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        {skills.length === 0 && <p>No skills saved yet. Start with the language you want recruiters to notice.</p>}
+      </div>
+    </>
+  )
+}
+
+function RepeatableSection({ entries, form, isEditing, onAttachProof, onDelete, onEdit, onReset, onSave, onUpdate, section }) {
+  const labels = {
+    education: { eyebrow: '02 / education', title: 'Academic foundations, with proof attached.', titleField: 'Degree / program', org: 'Institution' },
+    projects: { eyebrow: '04 / projects', title: 'Work you built, shipped, tested, or imagined.', titleField: 'Project name', org: 'Role / context' },
+    internships: { eyebrow: '05 / internships', title: 'Professional rooms where your practice changed.', titleField: 'Internship role', org: 'Company' },
+    certifications: { eyebrow: '06 / certifications', title: 'Credentials and learning signals worth remembering.', titleField: 'Certification name', org: 'Issuing organization' },
+    achievements: { eyebrow: '07 / achievements', title: 'Visible moments of recognition and momentum.', titleField: 'Achievement / event', org: 'Organization / event host' },
+  }[section]
 
   return (
-    <motion.section
-      className="evidence-ingestion mt-14"
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.36, duration: 0.7 }}
-    >
-      <div className="archive-caption">Evidence ingestion / Gemini Vision</div>
-      <label className={`evidence-drop mt-6 ${ingestion.status === 'processing' ? 'is-processing' : ''}`}>
-        <input accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" onChange={onFile} type="file" />
-        <span className="evidence-orb">
-          {ingestion.status === 'processing' ? <Sparkles className="h-5 w-5" /> : <Upload className="h-5 w-5" />}
-        </span>
-        <span>
-          <strong>{ingestion.status === 'processing' ? 'Reading evidence' : 'Upload proof document'}</strong>
-          <small>Resume PDFs, certificates, transcripts, internship letters, screenshots</small>
-        </span>
-      </label>
+    <>
+      <SectionHeader eyebrow={labels.eyebrow} title={labels.title} />
+      <div className="entry-form mt-8">
+        <div className="profile-grid">
+          <Field label={labels.titleField} onChange={(value) => onUpdate('title', value)} value={form.title} />
+          <Field label={labels.org} onChange={(value) => onUpdate('organization', value)} value={form.organization} />
+          <Field label="Dates / year" onChange={(value) => onUpdate('date', value)} placeholder="2025, Jan-Mar 2026..." value={form.date} />
+          <Field label="Technologies / keywords" onChange={(value) => onUpdate('technologies', value)} value={form.technologies} />
+        </div>
+        <Field area label="Details" onChange={(value) => onUpdate('detail', value)} placeholder="What happened, what you made, what changed, what can be verified..." value={form.detail} />
+        <ProofUpload label={proofLabels[section]} onAttach={onAttachProof} proof={form.proof} />
+        <div className="form-actions">
+          <button onClick={onReset} type="button">Clear</button>
+          <button className="add-entry" onClick={onSave} type="button">{isEditing ? 'Save edit' : 'Add another'}</button>
+        </div>
+      </div>
+      <SavedEntries entries={entries} onDelete={onDelete} onEdit={onEdit} />
+    </>
+  )
+}
 
-      {ingestion.note && (
-        <p className={`evidence-note ${ingestion.status === 'error' ? 'is-error' : ''}`}>{ingestion.note}</p>
+function SectionHeader({ eyebrow, title }) {
+  return (
+    <div>
+      <div className="archive-caption">{eyebrow}</div>
+      <h2 className="builder-section-title mt-4">{title}</h2>
+    </div>
+  )
+}
+
+function Field({ area = false, label, onChange, placeholder = '', value }) {
+  return (
+    <label className={`builder-field ${area ? 'is-area' : ''}`}>
+      <span>{label}</span>
+      {area ? (
+        <textarea onChange={(event) => onChange(event.target.value)} placeholder={placeholder} value={value} />
+      ) : (
+        <input onChange={(event) => onChange(event.target.value)} placeholder={placeholder} value={value} />
       )}
-
-      <AnimatePresence>
-        {ingestion.status === 'processing' && (
-          <motion.div
-            className="evidence-processing"
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-          >
-            <motion.span
-              animate={{ x: ['-15%', '115%'] }}
-              transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
-            />
-            <p>{ingestion.fileName}</p>
-          </motion.div>
-        )}
-
-        {ingestion.status === 'review' && extraction && (
-          <motion.div
-            className="extraction-review"
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-          >
-            <div className="extraction-header">
-              <div>
-                <div className="archive-caption">Draft memories detected</div>
-                <h3>{extraction.documentType}</h3>
-                <p>{extraction.fileName}</p>
-              </div>
-              <ConfidenceMark value={extraction.confidence} />
-            </div>
-
-            {extraction.note && <p className="extraction-summary">{extraction.note}</p>}
-
-            {extraction.skills.length > 0 && (
-              <div className="extraction-block">
-                <div className="archive-caption">Skills</div>
-                {extraction.skills.map((skill, index) => (
-                  <div className="extracted-skill" key={`${skill.name}-${index}`}>
-                    <input onChange={(event) => onUpdateSkill(index, event.target.value)} value={skill.name} />
-                    <ConfidenceMark value={skill.confidence} />
-                    <button aria-label={`Remove ${skill.name}`} onClick={() => onRemoveSkill(index)} type="button">
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {archiveChapters.map((chapter) => (
-              extraction.memories[chapter.id].length > 0 && (
-                <div className="extraction-block" key={chapter.id}>
-                  <div className="archive-caption">{chapter.title}</div>
-                  {extraction.memories[chapter.id].map((entry, index) => (
-                    <div className="extracted-memory" key={`${entry.title}-${index}`}>
-                      <div className="extracted-memory-grid">
-                        <input onChange={(event) => onUpdateMemory(chapter.id, index, 'title', event.target.value)} value={entry.title} />
-                        <input onChange={(event) => onUpdateMemory(chapter.id, index, 'date', event.target.value)} value={entry.date} />
-                      </div>
-                      <textarea onChange={(event) => onUpdateMemory(chapter.id, index, 'detail', event.target.value)} value={entry.detail} />
-                      <div className="extracted-actions">
-                        <ConfidenceMark value={entry.confidence} />
-                        <button onClick={() => onRemoveMemory(chapter.id, index)} type="button">Discard</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )
-            ))}
-
-            <div className="extraction-footer">
-              <span>{extraction.skills.length} skills / {extractedMemoryCount} memories</span>
-              <div>
-                <button onClick={onCancel} type="button">Cancel</button>
-                <button className="remember-evidence" onClick={onSave} type="button">Remember evidence</button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.section>
+    </label>
   )
 }
 
-function ConfidenceMark({ value }) {
+function ProofUpload({ label, onAttach, proof }) {
   return (
-    <span className="confidence-mark">
-      {value}%
-    </span>
+    <label className="proof-upload">
+      <input
+        accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+        onChange={(event) => {
+          onAttach(event.target.files?.[0])
+          event.target.value = ''
+        }}
+        type="file"
+      />
+      <Upload className="h-4 w-4" />
+      <span>{proof?.name || label}</span>
+      <small>{proof ? 'Proof attached locally' : 'PDF, PNG, JPG, JPEG'}</small>
+    </label>
   )
 }
 
-function RouteButton({ label, navigate, path }) {
+function SavedEntries({ entries, onDelete, onEdit }) {
   return (
-    <button
-      className="passage-link group"
-      onClick={() => navigate(path)}
-      type="button"
-    >
-      {label}
-      <ArrowRight className="h-4 w-4 transition-transform duration-500 group-hover:translate-x-2" />
-    </button>
+    <div className="saved-entry-list mt-8">
+      <div className="archive-caption">Saved entries</div>
+      {entries.length === 0 ? (
+        <p className="empty-builder-copy">Nothing saved here yet.</p>
+      ) : entries.map((entry, index) => (
+        <article className="saved-entry" key={`${entry.title}-${index}`}>
+          <div>
+            <h3>{entry.title}</h3>
+            <p>{entry.organization || entry.detail}</p>
+            <small>{entry.date || 'Undated'}{entry.proof?.name ? ` / proof: ${entry.proof.name}` : ''}</small>
+          </div>
+          <div className="entry-actions">
+            <button onClick={() => onEdit(index)} type="button">Edit</button>
+            <button onClick={() => onDelete(index)} type="button">Delete</button>
+          </div>
+        </article>
+      ))}
+    </div>
+  )
+}
+
+function ArchivePreview({ entries, memoryCount, navigate, personal, skills }) {
+  const previewItems = archiveChapters.flatMap((chapter) => (
+    entries[chapter.id].slice(0, 2).map((entry) => ({ ...entry, section: chapter.title }))
+  )).slice(0, 5)
+
+  return (
+    <div className="archive-preview mt-10">
+      <div className="archive-caption">Preview</div>
+      <h3>{personal.fullName || 'Unnamed profile'}</h3>
+      <p>{personal.headline || 'Add personal details to give this archive a face.'}</p>
+      <div className="preview-metrics">
+        <span>{skills.length} skills</span>
+        <span>{memoryCount} memories</span>
+      </div>
+      <div className="preview-list">
+        {previewItems.map((item, index) => (
+          <div key={`${item.title}-${index}`}>
+            <small>{item.section}</small>
+            <span>{item.title}</span>
+          </div>
+        ))}
+      </div>
+      <button className="passage-link mt-8" onClick={() => navigate('/opportunity')} type="button">
+        Read an opportunity <ArrowRight className="h-4 w-4" />
+      </button>
+    </div>
   )
 }
 
@@ -1515,156 +1354,6 @@ function OpportunityContours() {
   )
 }
 
-function SkillField(props) {
-  const availableSuggestions = props.suggestedSkills.filter((skill) => !props.skills.includes(skill))
-
-  return (
-    <motion.div
-      className="skill-field mt-14"
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.28, duration: 0.7 }}
-    >
-      <div className="archive-caption">Skills / living vocabulary</div>
-      <div className="mt-7 flex flex-wrap gap-x-3 gap-y-4">
-        <AnimatePresence>
-          {props.skills.map((skill, index) => (
-            <motion.div
-              className="skill-memory"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1, y: [0, index % 2 ? 3 : -3, 0] }}
-              exit={{ opacity: 0, scale: 0.88 }}
-              transition={{ opacity: { duration: 0.3 }, y: { duration: 6 + index, repeat: Infinity, ease: 'easeInOut' } }}
-              key={`${skill}-${index}`}
-            >
-              {props.editingSkill === skill ? (
-                <input
-                  autoFocus
-                  className="skill-edit"
-                  onBlur={props.commitSkillEdit}
-                  onChange={(event) => props.setEditDraft(event.target.value)}
-                  onKeyDown={(event) => event.key === 'Enter' && props.commitSkillEdit()}
-                  value={props.editDraft}
-                />
-              ) : (
-                <button onClick={() => props.beginSkillEdit(skill)} type="button">{skill}</button>
-              )}
-              <button aria-label={`Remove ${skill}`} className="remove-skill" onClick={() => props.removeSkill(skill)} type="button">
-                <X className="h-3 w-3" />
-              </button>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
-      {props.skills.length === 0 && (
-        <p className="skill-empty mt-6">
-          Begin with one signal, then let the archive get more specific.
-        </p>
-      )}
-      {availableSuggestions.length > 0 && (
-        <div className="skill-suggestions mt-6">
-          {availableSuggestions.map((skill) => (
-            <button key={skill} onClick={() => props.addSuggestedSkill(skill)} type="button">
-              {skill}
-            </button>
-          ))}
-        </div>
-      )}
-      <form className="add-skill mt-8 flex items-center gap-3" onSubmit={props.addSkill}>
-        <Plus className="h-4 w-4 text-violet-200/55" />
-        <input
-          onChange={(event) => props.setSkillDraft(event.target.value)}
-          placeholder="Add a skill to the portrait"
-          value={props.skillDraft}
-        />
-      </form>
-    </motion.div>
-  )
-}
-
-function ArchiveChapter({ chapter, draft, entries, index, open, onAdd, onChange, onToggle }) {
-  return (
-    <motion.article
-      className={`archive-chapter ${open ? 'is-open' : ''}`}
-      initial={{ opacity: 0, y: 25 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.07 + 0.18, duration: 0.6 }}
-    >
-      <button className="chapter-heading" onClick={onToggle} type="button">
-        <span className="chapter-number">{chapter.number}</span>
-        <span className="chapter-name">
-          <span>{chapter.title}</span>
-          <small>{chapter.prompt}</small>
-        </span>
-        <motion.span animate={{ rotate: open ? 180 : 0 }} className="chapter-toggle">
-          <ChevronDown className="h-4 w-4" />
-        </motion.span>
-      </button>
-
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            className="chapter-body"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <div className="memory-list">
-              {entries.length === 0 && (
-                <motion.div
-                  className="memory-row is-ghost"
-                  initial={{ opacity: 0, x: 14 }}
-                  animate={{ opacity: 1, x: 0 }}
-                >
-                  <div className="memory-title">{chapter.example.title}</div>
-                  <div className="memory-detail">{chapter.example.detail}</div>
-                  <div className="memory-date">{chapter.example.date}</div>
-                </motion.div>
-              )}
-              {entries.map((entry, entryIndex) => (
-                <motion.div
-                  className="memory-row"
-                  initial={{ opacity: 0, x: 14 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  key={`${entry.title}-${entryIndex}`}
-                >
-                  <div className="memory-title">{entry.title}</div>
-                  <div className="memory-detail">{entry.detail || 'A new fragment added to your archive.'}</div>
-                  <div className="memory-date">{entry.date || 'Undated'}</div>
-                </motion.div>
-              ))}
-            </div>
-            <form className="memory-composer" onSubmit={(event) => onAdd(event, chapter.id)}>
-              <input
-                onChange={(event) => onChange(chapter.id, 'title', event.target.value)}
-                placeholder={`Add ${chapter.title.toLowerCase().replace(/s$/, '')}`}
-                value={draft.title}
-              />
-              <input
-                onChange={(event) => onChange(chapter.id, 'detail', event.target.value)}
-                placeholder="A detail worth remembering"
-                value={draft.detail}
-              />
-              <div className="flex items-center gap-5">
-                <input
-                  className="date-input"
-                  onChange={(event) => onChange(chapter.id, 'date', event.target.value)}
-                  placeholder="When"
-                  value={draft.date}
-                />
-                <button className="inscribe" type="submit">
-                  Inscribe <Plus className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.article>
-  )
-}
-
 function Atmosphere({ pointerGlow, vault }) {
   return (
     <div className="pointer-events-none fixed inset-0">
@@ -1773,3 +1462,5 @@ function ContourSvg() {
 }
 
 export default App
+
+
